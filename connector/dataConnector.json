@@ -1,34 +1,24 @@
 {
+  "_comment": "Reference only — this resource is auto-provisioned when you click 'Deploy Push Connector Resources' in the Sentinel Data Connectors gallery. Do not deploy this template manually.",
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
-  "parameters": {
-    "workspaceName": {
-      "type": "string"
-    },
-    "location": {
-      "type": "string",
-      "defaultValue": "[resourceGroup().location]"
-    }
-  },
   "resources": [
     {
       "type": "Microsoft.SecurityInsights/dataConnectors",
       "apiVersion": "2024-09-01",
       "name": "FeodotrackerCCFPushConnector",
-      "location": "[parameters('location')]",
-      "scope": "[concat('Microsoft.OperationalInsights/workspaces/', parameters('workspaceName'))]",
       "kind": "Push",
       "properties": {
         "connectorDefinitionName": "FeodotrackerCCFPush",
         "dcrConfig": {
           "streamName": "Custom-FeodoTrackerStream",
-          "dataCollectionEndpoint": "[[parameters('dcrConfig').dataCollectionEndpoint]",
-          "dataCollectionRuleImmutableId": "[[parameters('dcrConfig').dataCollectionRuleImmutableId]"
+          "dataCollectionEndpoint": "<auto-provisioned>",
+          "dataCollectionRuleImmutableId": "<auto-provisioned>"
         },
         "auth": {
           "type": "Push",
-          "AppId": "[[parameters('auth').appId]",
-          "ServicePrincipalId": "[[parameters('auth').servicePrincipalId]"
+          "AppId": "<auto-provisioned>",
+          "ServicePrincipalId": "<auto-provisioned>"
         },
         "request": {
           "RetryCount": 1

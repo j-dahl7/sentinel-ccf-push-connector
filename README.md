@@ -7,7 +7,7 @@ Build a custom Microsoft Sentinel connector using the Codeless Connector Framewo
 | Component | Description |
 |-----------|-------------|
 | **Bicep templates** | Log Analytics workspace + Sentinel onboarding |
-| **CCF Push connector** | 4 JSON artifacts (table, DCR, connector definition, data connector) |
+| **CCF Push connector** | Table, DCR, and connector definition (data connector auto-provisioned via portal) |
 | **Python sender** | Fetches abuse.ch → transforms → POSTs to DCE via OAuth |
 | **Analytics rules** | 5 KQL detection rules (4 feed analysis + 1 network TI correlation) |
 | **Hunting queries** | 5 proactive threat hunting queries |
@@ -53,7 +53,7 @@ python3 ./scripts/Send-ThreatIntel.py
 
 ## Blog Post
 
-[Build a Custom Sentinel Connector in 5 Minutes with CCF Push](https://nineliveszerotrust.com/blog/sentinel-ccf-push-connector/)
+[Building Custom Sentinel Connectors in One Click with CCF Push](https://nineliveszerotrust.com/blog/sentinel-ccf-push-connector/)
 
 ## License
 
