@@ -7,8 +7,8 @@
     Deploys a complete custom Sentinel connector using CCF Push mode:
     1. Infrastructure (Bicep: Log Analytics workspace + Sentinel onboarding)
     2. Sentinel onboarding state
-    3. CCF Push connector artifacts (connector definition + data connector)
-    4. Sentinel analytics rules (4 scheduled rules for botnet C2 detection)
+    3. CCF Push connector definition (data connector auto-provisioned via portal)
+    4. Sentinel analytics rules (5 scheduled rules for botnet C2 detection)
     5. Sentinel workbook (Threat Intelligence Dashboard)
 
     After deployment, open the Sentinel Data Connectors gallery and click
@@ -150,15 +150,7 @@ az deployment group create `
     --output none 2>$null
 
 Write-Host "  Connector definition deployed" -ForegroundColor Green
-
-$dataConnectorPath = Join-Path $LabRoot 'connector' 'dataConnector.json'
-az deployment group create `
-    --resource-group $ResourceGroup `
-    --template-file $dataConnectorPath `
-    --parameters workspaceName=$workspaceName `
-    --output none 2>$null
-
-Write-Host "  Push data connector deployed" -ForegroundColor Green
+Write-Host "  Data connector will be auto-provisioned when you click 'Deploy Push Connector Resources' in the portal" -ForegroundColor DarkGray
 
 # --- Step 4: Deploy analytics rules ---
 if (-not $SkipSentinel) {
@@ -259,7 +251,7 @@ union isfuzzy=true
 | project TimeGenerated, SourceIP, DestinationIP, malware, LogSource, Details
 "@
             tactics        = @("CommandAndControl")
-            techniques     = @("T1071")
+            techniques     = @("T1071", "T1102")
             subTechniques  = @()
         }
     )
