@@ -40,7 +40,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "FeodoTracker_CL\n| summarize Indicators = count() by malware, bin(TimeGenerated, 1d)\n| render timechart",
+        "query": "FeodoTracker_CL\n| where TimeGenerated {TimeRange}\n| summarize Indicators = dcount(ip_address) by malware, bin(TimeGenerated, 1d)\n| render timechart",
         "size": 1,
         "title": "C2 Activity Timeline",
         "queryType": 0,
@@ -52,7 +52,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "FeodoTracker_CL\n| where status == \"online\"\n| summarize C2Servers = dcount(ip_address) by country\n| sort by C2Servers desc\n| take 15\n| render barchart",
+        "query": "FeodoTracker_CL\n| where TimeGenerated {TimeRange}\n| where status == \"online\"\n| summarize C2Servers = dcount(ip_address) by country\n| sort by C2Servers desc\n| take 15\n| render barchart",
         "size": 1,
         "title": "Geographic Distribution",
         "queryType": 0,
@@ -64,7 +64,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "FeodoTracker_CL\n| where TimeGenerated > ago(7d)\n| summarize ActiveC2 = dcount(ip_address), LatestActivity = max(last_seen), TopCountries = make_set(country, 5) by malware\n| sort by ActiveC2 desc",
+        "query": "FeodoTracker_CL\n| where TimeGenerated {TimeRange}\n| summarize ActiveC2 = dcount(ip_address), LatestActivity = max(last_seen), TopCountries = make_set(country, 5) by malware\n| sort by ActiveC2 desc",
         "size": 1,
         "title": "Active Malware Families",
         "queryType": 0,
@@ -76,7 +76,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "FeodoTracker_CL\n| where TimeGenerated > ago(24h)\n| sort by TimeGenerated desc\n| project TimeGenerated, ip_address, port, malware, status, country, first_seen, last_seen\n| take 50",
+        "query": "FeodoTracker_CL\n| where TimeGenerated {TimeRange}\n| sort by TimeGenerated desc\n| project TimeGenerated, ip_address, port, malware, status, country, first_seen, last_seen\n| take 50",
         "size": 1,
         "title": "Recent Indicators",
         "queryType": 0,
@@ -88,7 +88,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "let ActiveC2 = FeodoTracker_CL\n| where TimeGenerated > ago(7d)\n| where status == \"online\"\n| distinct ip_address, malware;\nunion isfuzzy=true\n    (datatable(TimeGenerated:datetime, SourceIP:string, DestinationIP:string, LogSource:string)[]),\n    (CommonSecurityLog | where TimeGenerated > ago(1d) | where isnotempty(DestinationIP) | project TimeGenerated, SourceIP, DestinationIP, LogSource = DeviceProduct),\n    (DnsEvents | where TimeGenerated > ago(1d) | where isnotempty(IPAddresses) | mv-expand IPAddress = split(IPAddresses, \",\") | project TimeGenerated, SourceIP = ClientIP, DestinationIP = tostring(IPAddress), LogSource = \"DNS\")\n| join kind=inner ActiveC2 on $left.DestinationIP == $right.ip_address\n| project TimeGenerated, SourceIP, DestinationIP, malware, LogSource\n| sort by TimeGenerated desc\n| take 50",
+        "query": "let ActiveC2 = FeodoTracker_CL\n| where TimeGenerated {TimeRange}\n| where status == \"online\"\n| distinct ip_address, malware;\nunion isfuzzy=true\n    (datatable(TimeGenerated:datetime, SourceIP:string, DestinationIP:string, LogSource:string)[]),\n    (CommonSecurityLog | where TimeGenerated {TimeRange} | where isnotempty(DestinationIP) | project TimeGenerated, SourceIP, DestinationIP, LogSource = DeviceProduct),\n    (DnsEvents | where TimeGenerated {TimeRange} | where isnotempty(IPAddresses) | mv-expand IPAddress = split(IPAddresses, \",\") | project TimeGenerated, SourceIP = ClientIP, DestinationIP = tostring(IPAddress), LogSource = \"DNS\")\n| join kind=inner ActiveC2 on $left.DestinationIP == $right.ip_address\n| project TimeGenerated, SourceIP, DestinationIP, malware, LogSource\n| sort by TimeGenerated desc\n| take 50",
         "size": 1,
         "title": "Network Traffic to Known C2 (Cross-Source)",
         "queryType": 0,

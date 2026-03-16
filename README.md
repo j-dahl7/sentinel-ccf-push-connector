@@ -12,7 +12,7 @@ Build a custom Microsoft Sentinel connector using the Codeless Connector Framewo
 | **Analytics rules** | 5 KQL detection rules (4 feed analysis + 1 network TI correlation) |
 | **Hunting queries** | 5 proactive threat hunting queries |
 | **GitHub Actions** | Scheduled ingestion workflow (every 6 hours) |
-| **Workbook** | Threat Intelligence Dashboard (4 panels) |
+| **Workbook** | Threat Intelligence Dashboard (5 panels) |
 
 ## Quick Start
 
@@ -21,11 +21,11 @@ Build a custom Microsoft Sentinel connector using the Codeless Connector Framewo
 ./scripts/Deploy-Lab.ps1 -Location "eastus"
 
 # After clicking "Deploy Push Connector Resources" in the Sentinel portal:
-export CCF_TENANT_ID="<tenant-id>"
-export CCF_CLIENT_ID="<client-id>"
-export CCF_CLIENT_SECRET="<client-secret>"
-export CCF_DCE_URI="<dce-uri>"
-export CCF_DCR_ID="<dcr-immutable-id>"
+$env:CCF_TENANT_ID = "<tenant-id>"
+$env:CCF_CLIENT_ID = "<client-id>"
+$env:CCF_CLIENT_SECRET = "<client-secret>"
+$env:CCF_DCE_URI = "<dce-uri>"
+$env:CCF_DCR_ID = "<dcr-immutable-id>"
 
 # Push threat intelligence
 pip install requests

@@ -171,10 +171,10 @@ if (-not $SkipSentinel) {
             severity    = "High"
             query       = @"
 let KnownFamilies = FeodoTracker_CL
-    | where TimeGenerated > ago(30d) and TimeGenerated < ago(1d)
+    | where TimeGenerated > ago(30d) and TimeGenerated < ago(1h)
     | distinct malware;
 FeodoTracker_CL
-| where TimeGenerated > ago(1d)
+| where TimeGenerated > ago(1h)
 | where malware !in (KnownFamilies)
 | summarize IndicatorCount = count(), FirstIP = min(ip_address), Countries = make_set(country, 10) by malware
 | project TimeGenerated = now(), malware, IndicatorCount, FirstIP, Countries
@@ -189,7 +189,7 @@ FeodoTracker_CL
             severity    = "Medium"
             query       = @"
 let Current = FeodoTracker_CL
-    | where TimeGenerated between (ago(1d) .. now())
+    | where TimeGenerated > ago(1h)
     | where status == "online"
     | summarize CurrentCount = dcount(ip_address)
     | extend _key = 1;
@@ -214,7 +214,7 @@ Current | join kind=inner (Previous) on _key
             severity    = "High"
             query       = @"
 FeodoTracker_CL
-| where TimeGenerated > ago(1d)
+| where TimeGenerated > ago(1h)
 | where status == "online"
 | where port in (443, 8443)
 | where last_seen > ago(7d)
@@ -230,7 +230,7 @@ FeodoTracker_CL
             severity    = "Medium"
             query       = @"
 FeodoTracker_CL
-| where TimeGenerated > ago(1d)
+| where TimeGenerated > ago(1h)
 | summarize C2Count = dcount(ip_address), Families = make_set(malware, 10), Ports = make_set(port, 10), SampleIPs = make_set(ip_address, 5) by country
 | where C2Count >= 10
 | project TimeGenerated = now(), country, C2Count, Families, Ports, SampleIPs
@@ -405,11 +405,11 @@ Write-Host @"
   3. Click "Deploy Push Connector Resources"
   4. Copy the connection credentials (shown once)
   5. Set environment variables:
-       export CCF_TENANT_ID="<tenant-id>"
-       export CCF_CLIENT_ID="<client-id>"
-       export CCF_CLIENT_SECRET="<client-secret>"
-       export CCF_DCE_URI="<dce-uri>"
-       export CCF_DCR_ID="<dcr-immutable-id>"
+       $env:CCF_TENANT_ID = "<tenant-id>"
+       $env:CCF_CLIENT_ID = "<client-id>"
+       $env:CCF_CLIENT_SECRET = "<client-secret>"
+       $env:CCF_DCE_URI = "<dce-uri>"
+       $env:CCF_DCR_ID = "<dcr-immutable-id>"
   6. Run: python3 $ScriptDir/Send-ThreatIntel.py
   7. Wait 5-10 minutes, then query: FeodoTracker_CL | take 10
 "@
