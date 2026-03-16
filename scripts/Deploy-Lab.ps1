@@ -172,11 +172,13 @@ if (-not $SkipSentinel) {
             query       = @"
 let KnownFamilies = FeodoTracker_CL
     | where TimeGenerated > ago(30d) and TimeGenerated < ago(1h)
+    | summarize arg_max(TimeGenerated, *) by ip_address
     | distinct malware;
 FeodoTracker_CL
 | where TimeGenerated > ago(1h)
+| summarize arg_max(TimeGenerated, *) by ip_address
 | where malware !in (KnownFamilies)
-| summarize IndicatorCount = count(), FirstIP = min(ip_address), Countries = make_set(country, 10) by malware
+| summarize IndicatorCount = dcount(ip_address), FirstIP = min(ip_address), Countries = make_set(country, 10) by malware
 | project TimeGenerated = now(), malware, IndicatorCount, FirstIP, Countries
 "@
             tactics        = @("CommandAndControl")
@@ -215,6 +217,7 @@ Current | join kind=inner (Previous) on _key
             query       = @"
 FeodoTracker_CL
 | where TimeGenerated > ago(1h)
+| summarize arg_max(TimeGenerated, *) by ip_address
 | where status == "online"
 | where port in (443, 8443)
 | where last_seen > ago(7d)
