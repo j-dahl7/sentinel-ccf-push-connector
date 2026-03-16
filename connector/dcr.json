@@ -1,0 +1,59 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "dcrName": {
+      "type": "string",
+      "defaultValue": "dcr-feodotracker-ccf-push"
+    },
+    "location": {
+      "type": "string"
+    },
+    "workspaceResourceId": {
+      "type": "string"
+    },
+    "dataCollectionEndpointId": {
+      "type": "string"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Insights/dataCollectionRules",
+      "apiVersion": "2023-03-11",
+      "name": "[parameters('dcrName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "dataCollectionEndpointId": "[parameters('dataCollectionEndpointId')]",
+        "streamDeclarations": {
+          "Custom-FeodoTrackerStream": {
+            "columns": [
+              { "name": "ip_address", "type": "string" },
+              { "name": "port", "type": "int" },
+              { "name": "status", "type": "string" },
+              { "name": "malware", "type": "string" },
+              { "name": "first_seen", "type": "datetime" },
+              { "name": "last_seen", "type": "datetime" },
+              { "name": "country", "type": "string" }
+            ]
+          }
+        },
+        "destinations": {
+          "logAnalytics": [
+            {
+              "workspaceResourceId": "[parameters('workspaceResourceId')]",
+              "name": "logAnalyticsWorkspace"
+            }
+          ]
+        },
+        "dataFlows": [
+          {
+            "streams": [ "Custom-FeodoTrackerStream" ],
+            "destinations": [ "logAnalyticsWorkspace" ],
+            "transformKql": "source | extend TimeGenerated = now()",
+            "outputStream": "Custom-FeodoTracker_CL"
+          }
+        ]
+      }
+    }
+  ]
+}

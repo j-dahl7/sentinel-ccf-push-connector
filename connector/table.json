@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "workspaceName": {
+      "type": "string"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/tables",
+      "apiVersion": "2022-10-01",
+      "name": "[concat(parameters('workspaceName'), '/FeodoTracker_CL')]",
+      "properties": {
+        "schema": {
+          "name": "FeodoTracker_CL",
+          "columns": [
+            { "name": "TimeGenerated", "type": "datetime", "description": "Ingestion timestamp" },
+            { "name": "ip_address", "type": "string", "description": "C2 server IP address" },
+            { "name": "port", "type": "int", "description": "C2 communication port" },
+            { "name": "status", "type": "string", "description": "C2 server status (online/offline)" },
+            { "name": "malware", "type": "string", "description": "Malware family name" },
+            { "name": "first_seen", "type": "datetime", "description": "When the C2 was first observed" },
+            { "name": "last_seen", "type": "datetime", "description": "When the C2 was last observed" },
+            { "name": "country", "type": "string", "description": "Hosting country code" }
+          ]
+        },
+        "retentionInDays": 30,
+        "plan": "Analytics"
+      }
+    }
+  ]
+}

@@ -1,0 +1,166 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "workspaceName": {
+      "type": "string"
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.SecurityInsights/dataConnectorDefinitions",
+      "apiVersion": "2022-09-01-preview",
+      "name": "FeodotrackerCCFPush",
+      "location": "[parameters('location')]",
+      "scope": "[concat('Microsoft.OperationalInsights/workspaces/', parameters('workspaceName'))]",
+      "kind": "Customizable",
+      "properties": {
+        "connectorUiConfig": {
+          "id": "FeodotrackerCCFPush",
+          "title": "Feodotracker Botnet C2 Feed (CCF Push)",
+          "publisher": "Nine Lives, Zero Trust (Lab)",
+          "descriptionMarkdown": "Ingests botnet C2 indicators from [abuse.ch Feodotracker](https://feodotracker.abuse.ch/) into Microsoft Sentinel using the Codeless Connector Framework Push mode.\n\n**Table:** `FeodoTracker_CL` — C2 server IPs, ports, malware families, status, and geolocation.",
+          "graphQueries": [
+            {
+              "metricName": "Total indicators received",
+              "legend": "FeodoTracker_CL",
+              "baseQuery": "FeodoTracker_CL"
+            }
+          ],
+          "sampleQueries": [
+            {
+              "description": "All recent C2 indicators",
+              "query": "FeodoTracker_CL\n| sort by TimeGenerated desc\n| take 50"
+            },
+            {
+              "description": "Active C2 by malware family",
+              "query": "FeodoTracker_CL\n| where status == 'online'\n| summarize Count=dcount(ip_address) by malware\n| sort by Count desc"
+            }
+          ],
+          "dataTypes": [
+            {
+              "name": "FeodoTracker_CL",
+              "lastDataReceivedQuery": "FeodoTracker_CL\n| summarize Time = max(TimeGenerated)\n| where isnotempty(Time)"
+            }
+          ],
+          "connectivityCriteria": [
+            {
+              "type": "HasDataConnectors"
+            }
+          ],
+          "availability": {
+            "status": 1
+          },
+          "permissions": {
+            "resourceProvider": [
+              {
+                "provider": "Microsoft.OperationalInsights/workspaces",
+                "providerDisplayName": "Workspace",
+                "permissionsDisplayText": "Read and Write permissions on the Log Analytics workspace",
+                "scope": "Workspace",
+                "requiredPermissions": {
+                  "write": true,
+                  "read": true,
+                  "delete": true
+                }
+              }
+            ],
+            "customs": [
+              {
+                "name": "Microsoft Entra",
+                "description": "Permission to create an app registration in Microsoft Entra ID."
+              },
+              {
+                "name": "Microsoft Azure",
+                "description": "Permission to assign Monitoring Metrics Publisher role on data collection rule."
+              }
+            ]
+          },
+          "instructionSteps": [
+            {
+              "title": "1. Deploy Push Connector Resources",
+              "description": "Click the button below to auto-provision the DCE, DCR, custom table, Entra app, client secret, and RBAC assignment.",
+              "instructions": [
+                {
+                  "type": "Markdown",
+                  "parameters": {
+                    "content": "#### Automated Configuration\nClicking **Deploy** creates a Log Analytics table, Data Collection Rule (DCR), Data Collection Endpoint (DCE), and an Entra application with a client secret. The Entra app is granted Monitoring Metrics Publisher role on the DCR."
+                  }
+                },
+                {
+                  "type": "DeployPushConnectorButton",
+                  "parameters": {
+                    "label": "Deploy Feodotracker Push connector resources",
+                    "applicationDisplayName": "Feodotracker CCF Push Connector"
+                  }
+                }
+              ]
+            },
+            {
+              "title": "2. Configure Your Sender Application",
+              "description": "Use the following connection details to configure the Send-ThreatIntel.py script.",
+              "instructions": [
+                {
+                  "type": "CopyableLabel",
+                  "parameters": {
+                    "label": "Tenant ID",
+                    "fillWith": ["TenantId"]
+                  }
+                },
+                {
+                  "type": "CopyableLabel",
+                  "parameters": {
+                    "label": "Application (Client) ID",
+                    "fillWith": ["ApplicationId"],
+                    "placeholder": "Deploy push connector to get the Application ID"
+                  }
+                },
+                {
+                  "type": "CopyableLabel",
+                  "parameters": {
+                    "label": "Client Secret",
+                    "fillWith": ["ApplicationSecret"],
+                    "placeholder": "Deploy push connector to get the Client Secret"
+                  }
+                },
+                {
+                  "type": "CopyableLabel",
+                  "parameters": {
+                    "label": "Data Collection Endpoint URI",
+                    "fillWith": ["DataCollectionEndpoint"],
+                    "placeholder": "Deploy push connector to get the DCE URI"
+                  }
+                },
+                {
+                  "type": "CopyableLabel",
+                  "parameters": {
+                    "label": "Data Collection Rule Immutable ID",
+                    "fillWith": ["DataCollectionRuleId"],
+                    "placeholder": "Deploy push connector to get the DCR Immutable ID"
+                  }
+                },
+                {
+                  "type": "CopyableLabel",
+                  "parameters": {
+                    "label": "Stream Name",
+                    "value": "Custom-FeodoTrackerStream"
+                  }
+                },
+                {
+                  "type": "Markdown",
+                  "parameters": {
+                    "content": "#### Run the Sender Script\nSet the connection credentials as environment variables and run:\n```bash\nexport CCF_TENANT_ID=\"<Tenant ID>\"\nexport CCF_CLIENT_ID=\"<Application ID>\"\nexport CCF_CLIENT_SECRET=\"<Client Secret>\"\nexport CCF_DCE_URI=\"<DCE URI>\"\nexport CCF_DCR_ID=\"<DCR Immutable ID>\"\npython3 Send-ThreatIntel.py\n```\nData appears in `FeodoTracker_CL` within 5-10 minutes."
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

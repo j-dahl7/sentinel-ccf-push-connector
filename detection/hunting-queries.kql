@@ -1,0 +1,98 @@
+// =============================================================================
+// Feodotracker Botnet C2 Hunting Queries for Microsoft Sentinel
+// Companion lab: nine-lives-security/nine-lives-zero-trust
+// Data source: https://feodotracker.abuse.ch/
+//
+// These are proactive hunting queries — run manually during investigations,
+// not as automated analytics rules.
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// HUNT 1: C2 Infrastructure by Malware Family Over Time
+// MITRE: T1588 (Obtain Capabilities)
+// Purpose: Track how each botnet's infrastructure grows or shrinks over time.
+//   Useful for understanding campaign tempo and identifying new campaigns.
+// -----------------------------------------------------------------------------
+FeodoTracker_CL
+| where TimeGenerated > ago(30d)
+| summarize C2Servers = dcount(ip_address)
+    by malware, bin(TimeGenerated, 1d)
+| render timechart
+
+// -----------------------------------------------------------------------------
+// HUNT 2: Most Active C2 Countries (Last 30 Days)
+// MITRE: T1583 (Acquire Infrastructure)
+// Purpose: Identify which countries host the most active C2 infrastructure.
+//   Cross-reference with your organization's geographic exposure for risk
+//   assessment and potential geographic blocking decisions.
+// -----------------------------------------------------------------------------
+FeodoTracker_CL
+| where TimeGenerated > ago(30d)
+| where status == "online"
+| summarize
+    ActiveC2 = dcount(ip_address),
+    Families = make_set(malware, 20)
+    by country
+| sort by ActiveC2 desc
+| take 20
+
+// -----------------------------------------------------------------------------
+// HUNT 3: Newly Appeared C2 IPs (First Seen in Last 7 Days)
+// MITRE: T1588 (Obtain Capabilities)
+// Purpose: Fresh C2 infrastructure is the most dangerous — it hasn't made it
+//   into most blocklists yet. Prioritize these IPs for immediate blocking.
+// -----------------------------------------------------------------------------
+FeodoTracker_CL
+| where TimeGenerated > ago(7d)
+| where first_seen > ago(7d)
+| summarize arg_max(TimeGenerated, *) by ip_address
+| project
+    ip_address,
+    port,
+    malware,
+    country,
+    first_seen,
+    last_seen,
+    status
+| sort by first_seen desc
+
+// -----------------------------------------------------------------------------
+// HUNT 4: Long-Lived C2 Infrastructure (Active > 90 Days)
+// MITRE: T1588 (Obtain Capabilities)
+// Purpose: C2 servers that survive 90+ days are either in bulletproof hosting
+//   or have been missed by takedown efforts. High-value blocklist candidates
+//   and potential indicators of well-funded threat actors.
+// -----------------------------------------------------------------------------
+FeodoTracker_CL
+| where TimeGenerated > ago(1d)
+| where status == "online"
+| extend DaysActive = datetime_diff('day', now(), first_seen)
+| where DaysActive > 90
+| summarize arg_max(TimeGenerated, *) by ip_address
+| project
+    ip_address,
+    port,
+    malware,
+    country,
+    first_seen,
+    DaysActive
+| sort by DaysActive desc
+
+// -----------------------------------------------------------------------------
+// HUNT 5: Feed Ingestion Health Check
+// Purpose: Audit the freshness and completeness of the Feodotracker feed.
+//   Identify gaps in ingestion (missed cron runs, expired secrets, rate limits)
+//   and track how the feed composition changes over time.
+// -----------------------------------------------------------------------------
+FeodoTracker_CL
+| summarize
+    RecordCount = count(),
+    DistinctIPs = dcount(ip_address),
+    Families = dcount(malware),
+    Countries = dcount(country),
+    OnlineCount = countif(status == "online"),
+    OldestRecord = min(first_seen),
+    NewestRecord = max(last_seen)
+    by bin(TimeGenerated, 6h)
+| extend OnlinePercent = round(100.0 * OnlineCount / RecordCount, 1)
+| sort by TimeGenerated desc

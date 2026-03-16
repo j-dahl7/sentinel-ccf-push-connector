@@ -1,0 +1,29 @@
+name: Ingest Feodotracker C2 Indicators
+
+on:
+  schedule:
+    # Run every 6 hours
+    - cron: '0 */6 * * *'
+  workflow_dispatch: # Manual trigger
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Push indicators to Sentinel
+        env:
+          CCF_TENANT_ID: ${{ secrets.CCF_TENANT_ID }}
+          CCF_CLIENT_ID: ${{ secrets.CCF_CLIENT_ID }}
+          CCF_CLIENT_SECRET: ${{ secrets.CCF_CLIENT_SECRET }}
+          CCF_DCE_URI: ${{ secrets.CCF_DCE_URI }}
+          CCF_DCR_ID: ${{ secrets.CCF_DCR_ID }}
+        run: python3 scripts/Send-ThreatIntel.py

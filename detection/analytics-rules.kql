@@ -1,0 +1,139 @@
+// =============================================================================
+// Feodotracker Botnet C2 Detection Rules for Microsoft Sentinel
+// Companion lab: nine-lives-security/nine-lives-zero-trust
+// Data source: https://feodotracker.abuse.ch/
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// RULE 1: New Botnet Family Detected
+// Severity: High
+// MITRE: T1071 (Application Layer Protocol)
+// Description: Fires when a malware family appears in the Feodotracker feed
+//   for the first time — no historical records in the last 30 days. A new
+//   family indicates a new campaign or previously unknown botnet infrastructure.
+// -----------------------------------------------------------------------------
+let KnownFamilies = FeodoTracker_CL
+    | where TimeGenerated > ago(30d) and TimeGenerated < ago(1d)
+    | distinct malware;
+FeodoTracker_CL
+| where TimeGenerated > ago(1d)
+| where malware !in (KnownFamilies)
+| summarize
+    IndicatorCount = count(),
+    FirstIP = min(ip_address),
+    Countries = make_set(country, 10)
+    by malware
+| project
+    TimeGenerated = now(),
+    malware,
+    IndicatorCount,
+    FirstIP,
+    Countries
+
+// -----------------------------------------------------------------------------
+// RULE 2: C2 Infrastructure Surge
+// Severity: Medium
+// MITRE: T1583 (Acquire Infrastructure)
+// Description: Detects a greater than 50% increase in active C2 IPs compared
+//   to the previous 24-hour window. A sudden spike in C2 infrastructure often
+//   precedes a large-scale spam or malware campaign.
+// -----------------------------------------------------------------------------
+let Current = FeodoTracker_CL
+    | where TimeGenerated between (ago(1d) .. now())
+    | where status == "online"
+    | summarize CurrentCount = dcount(ip_address)
+    | extend _key = 1;
+let Previous = FeodoTracker_CL
+    | where TimeGenerated between (ago(2d) .. ago(1d))
+    | where status == "online"
+    | summarize PreviousCount = dcount(ip_address)
+    | extend _key = 1;
+Current
+| join kind=inner (Previous) on _key
+| where PreviousCount > 0
+| extend ChangePercent = round(100.0 * (CurrentCount - PreviousCount) / PreviousCount, 1)
+| where ChangePercent > 50
+| project
+    TimeGenerated = now(),
+    CurrentCount,
+    PreviousCount,
+    ChangePercent
+
+// -----------------------------------------------------------------------------
+// RULE 3: High-Confidence Active C2
+// Severity: High
+// MITRE: T1071 (Application Layer Protocol), T1573 (Encrypted Channel)
+// Description: Flags recently active C2 servers using encrypted communication
+//   ports (443, 8443). C2 traffic over port 443 blends with legitimate HTTPS
+//   traffic, making these the highest priority for network blocking rules.
+// -----------------------------------------------------------------------------
+FeodoTracker_CL
+| where TimeGenerated > ago(1d)
+| where status == "online"
+| where port in (443, 8443)
+| where last_seen > ago(7d)
+| project
+    TimeGenerated,
+    ip_address,
+    port,
+    malware,
+    country,
+    first_seen,
+    last_seen
+
+// -----------------------------------------------------------------------------
+// RULE 4: Geographic C2 Concentration
+// Severity: Medium
+// MITRE: T1583 (Acquire Infrastructure)
+// Description: Alerts when 10 or more C2 IPs from the same country appear in
+//   a single ingestion batch. Concentration in a single country can indicate a
+//   bulletproof hosting provider or compromised hosting infrastructure.
+// -----------------------------------------------------------------------------
+FeodoTracker_CL
+| where TimeGenerated > ago(1d)
+| summarize
+    C2Count = dcount(ip_address),
+    Families = make_set(malware, 10),
+    Ports = make_set(port, 10),
+    SampleIPs = make_set(ip_address, 5)
+    by country
+| where C2Count >= 10
+| project
+    TimeGenerated = now(),
+    country,
+    C2Count,
+    Families,
+    Ports,
+    SampleIPs
+
+// -----------------------------------------------------------------------------
+// RULE 5: Network Traffic to Known Botnet C2
+// Severity: High
+// MITRE: T1071 (Application Layer Protocol), T1102 (Web Service)
+// Description: Correlates active Feodotracker C2 IPs with network traffic logs.
+//   Fires when any device in your environment communicates with a known C2
+//   server. Uses union isfuzzy=true to work across available log sources.
+// -----------------------------------------------------------------------------
+let ActiveC2 = FeodoTracker_CL
+    | where TimeGenerated > ago(7d)
+    | where status == "online"
+    | distinct ip_address, malware, port;
+union isfuzzy=true
+    (datatable(TimeGenerated:datetime, SourceIP:string, DestinationIP:string, LogSource:string, Details:string)[]),
+    (CommonSecurityLog
+        | where TimeGenerated > ago(1d)
+        | where isnotempty(DestinationIP)
+        | project TimeGenerated, SourceIP, DestinationIP, LogSource = DeviceProduct, Details = Activity),
+    (DnsEvents
+        | where TimeGenerated > ago(1d)
+        | where isnotempty(IPAddresses)
+        | mv-expand IPAddress = split(IPAddresses, ",")
+        | project TimeGenerated, SourceIP = ClientIP, DestinationIP = tostring(IPAddress), LogSource = "DNS", Details = Name)
+| join kind=inner ActiveC2 on $left.DestinationIP == $right.ip_address
+| project
+    TimeGenerated,
+    SourceIP,
+    DestinationIP,
+    malware,
+    LogSource,
+    Details
