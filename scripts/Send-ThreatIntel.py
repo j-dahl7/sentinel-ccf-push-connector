@@ -11,9 +11,11 @@ Environment variables:
 """
 
 import json
+import ipaddress
 import os
 import sys
 import time
+from datetime import datetime
 
 import requests
 
@@ -25,10 +27,10 @@ RETRY_DELAY = 5
 
 def get_env(name: str, default: str | None = None) -> str:
     value = os.environ.get(name, default)
-    if value is None:
+    if value is None or not value.strip():
         print(f"Error: environment variable {name} is required", file=sys.stderr)
         sys.exit(1)
-    return value
+    return value.strip()
 
 
 def get_oauth_token(tenant_id: str, client_id: str, client_secret: str) -> str:
@@ -47,10 +49,16 @@ def get_oauth_token(tenant_id: str, client_id: str, client_secret: str) -> str:
 def fetch_indicators() -> list[dict]:
     """Fetch C2 indicators from abuse.ch Feodotracker."""
     print(f"Fetching indicators from {FEODO_URL}")
-    resp = requests.get(FEODO_URL, timeout=30)
+    resp = requests.get(
+        FEODO_URL,
+        headers={"User-Agent": "nine-lives-zero-trust-ccf-lab/1.0"},
+        timeout=30,
+    )
     resp.raise_for_status()
     data = resp.json()
-    indicators = data if isinstance(data, list) else data.get("data", [])
+    indicators = data if isinstance(data, list) else data.get("data", []) if isinstance(data, dict) else None
+    if not isinstance(indicators, list):
+        raise ValueError("Feodotracker response did not contain an indicator list")
     print(f"  Fetched {len(indicators)} indicators")
     return indicators
 
@@ -58,16 +66,42 @@ def fetch_indicators() -> list[dict]:
 def transform(indicators: list[dict]) -> list[dict]:
     """Transform Feodotracker JSON to table schema."""
     records = []
+    skipped = 0
     for ind in indicators:
+        if not isinstance(ind, dict):
+            skipped += 1
+            continue
+
+        try:
+            address = str(ipaddress.ip_address(str(ind.get("ip_address", "")).strip()))
+            port = int(ind.get("port", 0))
+            if not 1 <= port <= 65535:
+                raise ValueError("port outside valid range")
+        except (TypeError, ValueError):
+            skipped += 1
+            continue
+
+        def normalize_datetime(value):
+            if not value:
+                return None
+            text = str(value).strip()
+            try:
+                datetime.fromisoformat(text.replace("Z", "+00:00"))
+            except ValueError:
+                return None
+            return text
+
         records.append({
-            "ip_address": ind.get("ip_address", ""),
-            "port": ind.get("port", 0),
-            "status": ind.get("status", ""),
-            "malware": ind.get("malware", ""),
-            "first_seen": ind.get("first_seen", ""),
-            "last_seen": ind.get("last_online", ""),
-            "country": ind.get("country", ""),
+            "ip_address": address,
+            "port": port,
+            "status": str(ind.get("status", "") or ""),
+            "malware": str(ind.get("malware", "") or ""),
+            "first_seen": normalize_datetime(ind.get("first_seen")),
+            "last_seen": normalize_datetime(ind.get("last_online")),
+            "country": str(ind.get("country", "") or ""),
         })
+    if skipped:
+        print(f"  Skipped {skipped} malformed indicator(s)")
     return records
 
 
@@ -80,7 +114,7 @@ def send_batch(
 ) -> int:
     """Send a batch of records to the DCE ingestion endpoint."""
     url = (
-        f"{dce_uri}/dataCollectionRules/{dcr_id}"
+        f"{dce_uri.rstrip('/')}/dataCollectionRules/{dcr_id}"
         f"/streams/{stream_name}?api-version=2023-01-01"
     )
     for attempt in range(1, MAX_RETRIES + 1):
@@ -95,7 +129,10 @@ def send_batch(
                 timeout=60,
             )
             if resp.status_code == 429:
-                retry_after = int(resp.headers.get("Retry-After", RETRY_DELAY))
+                retry_value = resp.headers.get("Retry-After", str(RETRY_DELAY))
+                retry_after = int(retry_value) if retry_value.isdigit() else RETRY_DELAY
+                if attempt == MAX_RETRIES:
+                    resp.raise_for_status()
                 print(f"  Rate limited, retrying in {retry_after}s (attempt {attempt}/{MAX_RETRIES})")
                 time.sleep(retry_after)
                 continue
@@ -107,7 +144,7 @@ def send_batch(
                 time.sleep(RETRY_DELAY)
             else:
                 raise
-    return 0
+    raise RuntimeError("Batch ingestion exhausted all retry attempts")
 
 
 def main():
@@ -127,13 +164,15 @@ def main():
     indicators = fetch_indicators()
     records = transform(indicators)
     print(f"  Transformed {len(records)} records")
+    if not records:
+        raise RuntimeError("No valid Feodotracker indicators were available to ingest")
 
     # Send in batches
     total_sent = 0
+    total_batches = (len(records) + BATCH_SIZE - 1) // BATCH_SIZE
     for i in range(0, len(records), BATCH_SIZE):
         batch = records[i : i + BATCH_SIZE]
         batch_num = (i // BATCH_SIZE) + 1
-        total_batches = (len(records) + BATCH_SIZE - 1) // BATCH_SIZE
         print(f"Sending batch {batch_num}/{total_batches} ({len(batch)} records)...")
         status = send_batch(batch, dce_uri, dcr_id, stream_name, token)
         total_sent += len(batch)

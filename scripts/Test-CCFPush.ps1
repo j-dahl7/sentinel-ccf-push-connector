@@ -1,4 +1,4 @@
-#Requires -Version 7.0
+#Requires -Version 7.3
 <#
 .SYNOPSIS
     Validates the CCF Push connector lab end-to-end.
@@ -30,6 +30,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$PSNativeCommandUseErrorActionPreference = $true
 $passed = 0
 $failed = 0
 
@@ -147,4 +148,7 @@ Write-Host ""
 if ($failed -gt 0) {
     Write-Host "Some checks failed. See above for details." -ForegroundColor Yellow
     Write-Host "If FeodoTracker_CL has no data, run Send-ThreatIntel.py and wait 5-10 minutes." -ForegroundColor DarkGray
+    exit 1
 }
+
+exit 0

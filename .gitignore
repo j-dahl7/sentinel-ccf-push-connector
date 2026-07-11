@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Local connector credentials and Azure deployment artifacts
+.env
+*.local.json

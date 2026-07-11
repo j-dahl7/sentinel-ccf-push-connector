@@ -1,4 +1,4 @@
-#Requires -Version 7.0
+#Requires -Version 7.3
 <#
 .SYNOPSIS
     Deploys the CCF Push Connector Lab.
@@ -29,6 +29,9 @@
 .PARAMETER Destroy
     Tear down all lab resources.
 
+.PARAMETER WhatIf
+    Preview the target resource group operation without changing Azure.
+
 .EXAMPLE
     ./Deploy-Lab.ps1 -Location "eastus"
 
@@ -52,6 +55,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$PSNativeCommandUseErrorActionPreference = $true
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $LabRoot = Split-Path -Parent $ScriptDir
 $ResourceGroup = "$ProjectName-rg"
@@ -69,14 +73,21 @@ if ($Destroy) {
 
     $rgExists = az group exists --name $ResourceGroup 2>$null
     if ($rgExists -eq 'true') {
-        Write-Host "  Deleting resource group: $ResourceGroup"
-        az group delete --name $ResourceGroup --yes --no-wait
-        Write-Host "  Resource group deletion initiated (async)" -ForegroundColor Green
+        if ($PSCmdlet.ShouldProcess($ResourceGroup, "Delete Azure resource group asynchronously")) {
+            Write-Host "  Deleting resource group: $ResourceGroup"
+            az group delete --name $ResourceGroup --yes --no-wait
+            Write-Host "  Resource group deletion initiated (async)" -ForegroundColor Green
+        }
     } else {
         Write-Host "  Resource group '$ResourceGroup' not found" -ForegroundColor DarkGray
     }
 
-    Write-Host "`nCleanup complete." -ForegroundColor Green
+    if ($WhatIfPreference) {
+        Write-Host "`nCleanup preview complete; no resources were deleted." -ForegroundColor Yellow
+    }
+    else {
+        Write-Host "`nCleanup request complete; asynchronous deletion may still be running." -ForegroundColor Green
+    }
     return
 }
 
@@ -95,6 +106,11 @@ if (-not $pythonVersion) {
     Write-Host "  Warning: Python 3 not found. Send-ThreatIntel.py requires Python 3.10+" -ForegroundColor Yellow
 } else {
     Write-Host "  Python: $pythonVersion" -ForegroundColor DarkGray
+}
+
+if (-not $PSCmdlet.ShouldProcess($ResourceGroup, "Deploy CCF Push lab resources, Sentinel content, and workbook")) {
+    Write-Host "`nDeployment preview complete; no Azure resources were changed." -ForegroundColor Green
+    return
 }
 
 # --- Step 1: Deploy infrastructure ---
