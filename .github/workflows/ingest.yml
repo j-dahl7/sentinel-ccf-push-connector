@@ -1,10 +1,21 @@
 name: Ingest Feodotracker C2 Indicators
 
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/ingest.yml'
+      - 'scripts/**'
+      - 'tests/**'
   schedule:
     # Run every 6 hours
     - cron: '0 */6 * * *'
-  workflow_dispatch: # Manual trigger
+  workflow_dispatch:
+    inputs:
+      perform_ingest:
+        description: 'Push indicators after tests pass'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -31,6 +42,7 @@ jobs:
         run: python -m unittest discover -s tests -v
 
       - name: Push indicators to Sentinel
+        if: ${{ github.event_name == 'schedule' || inputs.perform_ingest }}
         env:
           CCF_TENANT_ID: ${{ secrets.CCF_TENANT_ID }}
           CCF_CLIENT_ID: ${{ secrets.CCF_CLIENT_ID }}

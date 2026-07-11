@@ -55,7 +55,7 @@ The test script now exits nonzero when any end-to-end check fails, making it sui
 
 ## Scheduled ingestion safety
 
-The workflow runs every six hours with read-only repository permissions and pinned action/dependency versions. Store the five `CCF_*` values as GitHub Actions secrets, restrict repository administration, rotate the client secret, and never commit connector credentials. Prefer workload identity federation if the CCF workflow in your tenant supports it.
+The workflow validates pull requests and default manual runs without ingesting. Scheduled runs execute every six hours, while a manual run pushes only when `perform_ingest` is explicitly enabled. It uses read-only repository permissions and pinned action/dependency versions. Store the five `CCF_*` values as GitHub Actions secrets, restrict repository administration, rotate the client secret, and never commit connector credentials. Prefer workload identity federation if the CCF workflow in your tenant supports it.
 
 ## Analytics Rules
 

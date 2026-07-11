@@ -85,6 +85,18 @@ class SenderTests(unittest.TestCase):
         ingest_step = workflow.index("python scripts/Send-ThreatIntel.py")
         self.assertLess(test_step, ingest_step)
 
+    def test_workflow_pr_and_default_manual_runs_do_not_ingest(self):
+        workflow = (
+            MODULE_PATH.parents[1] / ".github" / "workflows" / "ingest.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("pull_request:", workflow)
+        self.assertIn("perform_ingest:", workflow)
+        self.assertIn(
+            "if: ${{ github.event_name == 'schedule' || inputs.perform_ingest }}",
+            workflow,
+        )
+
     def test_destroy_whatif_has_preview_specific_summary(self):
         deploy = (MODULE_PATH.parent / "Deploy-Lab.ps1").read_text(encoding="utf-8")
 
