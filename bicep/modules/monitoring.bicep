@@ -7,11 +7,18 @@ param location string
 @description('Project name for resource naming')
 param projectName string
 
+@description('Unique local ownership token used to prevent resource adoption')
+param ownerToken string
+
 var workspaceName = '${projectName}-law'
 
 resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: workspaceName
   location: location
+  tags: {
+    'nlzt-owner': ownerToken
+    'nlzt-lab': 'sentinel-ccf-push'
+  }
   properties: {
     sku: {
       name: 'PerGB2018'
@@ -31,6 +38,18 @@ resource sentinel 'Microsoft.OperationsManagement/solutions@2015-11-01-preview' 
   }
   properties: {
     workspaceResourceId: workspace.id
+  }
+  tags: {
+    'nlzt-owner': ownerToken
+    'nlzt-lab': 'sentinel-ccf-push'
+  }
+}
+
+resource sentinelOnboarding 'Microsoft.SecurityInsights/onboardingStates@2024-03-01' = {
+  scope: workspace
+  name: 'default'
+  properties: {
+    customerManagedKey: false
   }
 }
 

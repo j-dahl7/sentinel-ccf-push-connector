@@ -1,29 +1,54 @@
 name: Ingest Feodotracker C2 Indicators
 
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/ingest.yml'
+      - 'scripts/**'
+      - 'tests/**'
   schedule:
     # Run every 6 hours
     - cron: '0 */6 * * *'
-  workflow_dispatch: # Manual trigger
+  workflow_dispatch:
+    inputs:
+      perform_ingest:
+        description: 'Push indicators after tests pass'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
 
 jobs:
   ingest:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: scripts/requirements.lock
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install --disable-pip-version-check --require-hashes -r scripts/requirements.lock
+
+      - name: Run sender unit tests
+        run: python -m unittest discover -s tests -v
 
       - name: Push indicators to Sentinel
+        if: ${{ github.event_name == 'schedule' || inputs.perform_ingest }}
         env:
           CCF_TENANT_ID: ${{ secrets.CCF_TENANT_ID }}
           CCF_CLIENT_ID: ${{ secrets.CCF_CLIENT_ID }}
           CCF_CLIENT_SECRET: ${{ secrets.CCF_CLIENT_SECRET }}
           CCF_DCE_URI: ${{ secrets.CCF_DCE_URI }}
           CCF_DCR_ID: ${{ secrets.CCF_DCR_ID }}
-        run: python3 scripts/Send-ThreatIntel.py
+        run: python scripts/Send-ThreatIntel.py

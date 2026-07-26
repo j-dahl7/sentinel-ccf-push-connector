@@ -9,11 +9,17 @@ param location string = resourceGroup().location
 @description('Project name used for resource naming')
 param projectName string = 'ccf-push-lab'
 
+@description('Unique local ownership token used to prevent resource adoption')
+@minLength(36)
+@maxLength(36)
+param ownerToken string
+
 module monitoring 'modules/monitoring.bicep' = {
   name: 'monitoring-${uniqueString(resourceGroup().id)}'
   params: {
     location: location
     projectName: projectName
+    ownerToken: ownerToken
   }
 }
 
