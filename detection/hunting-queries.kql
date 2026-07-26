@@ -8,10 +8,10 @@
 // =============================================================================
 
 // -----------------------------------------------------------------------------
-// HUNT 1: C2 Infrastructure by Malware Family Over Time
-// MITRE: T1588 (Obtain Capabilities)
-// Purpose: Track how each botnet's infrastructure grows or shrinks over time.
-//   Useful for understanding campaign tempo and identifying new campaigns.
+// HUNT 1: Feed Indicators by Malware Label Over Time
+// ATT&CK: No technique asserted from feed metadata alone.
+// Purpose: Review how distinct feed IP counts vary by publisher-supplied label.
+//   Changes can also reflect ingestion gaps, deduplication, or feed coverage.
 // -----------------------------------------------------------------------------
 FeodoTracker_CL
 | where TimeGenerated > ago(30d)
@@ -20,11 +20,10 @@ FeodoTracker_CL
 | render timechart
 
 // -----------------------------------------------------------------------------
-// HUNT 2: Most Active C2 Countries (Last 30 Days)
-// MITRE: T1583 (Acquire Infrastructure)
-// Purpose: Identify which countries host the most active C2 infrastructure.
-//   Cross-reference with your organization's geographic exposure for risk
-//   assessment and potential geographic blocking decisions.
+// HUNT 2: Online Feed Indicators by Country (Last 30 Days)
+// ATT&CK: Geography alone does not establish T1583.
+// Purpose: Review country metadata associated with online feed rows. Do not use
+//   this aggregation alone for attribution or geographic blocking.
 // -----------------------------------------------------------------------------
 FeodoTracker_CL
 | where TimeGenerated > ago(30d)
@@ -37,10 +36,10 @@ FeodoTracker_CL
 | take 20
 
 // -----------------------------------------------------------------------------
-// HUNT 3: Newly Appeared C2 IPs (First Seen in Last 7 Days)
-// MITRE: T1588 (Obtain Capabilities)
-// Purpose: Fresh C2 infrastructure is the most dangerous — it hasn't made it
-//   into most blocklists yet. Prioritize these IPs for immediate blocking.
+// HUNT 3: Feed IPs First Seen in Last 7 Days
+// ATT&CK: No technique asserted from first-seen time alone.
+// Purpose: Surface recently first-seen feed rows for contextual review. Freshness
+//   does not establish severity or suitability for blocking.
 // -----------------------------------------------------------------------------
 FeodoTracker_CL
 | where TimeGenerated > ago(7d)
@@ -57,11 +56,10 @@ FeodoTracker_CL
 | sort by first_seen desc
 
 // -----------------------------------------------------------------------------
-// HUNT 4: Long-Lived C2 Infrastructure (Active > 90 Days)
-// MITRE: T1588 (Obtain Capabilities)
-// Purpose: C2 servers that survive 90+ days are either in bulletproof hosting
-//   or have been missed by takedown efforts. High-value blocklist candidates
-//   and potential indicators of well-funded threat actors.
+// HUNT 4: Long-Lived Online Feed Indicators (> 90 Days)
+// ATT&CK: No technique asserted from observation duration alone.
+// Purpose: Surface long-observed feed rows for review. Duration does not prove
+//   bulletproof hosting, failed takedown, current malice, or actor capability.
 // -----------------------------------------------------------------------------
 FeodoTracker_CL
 | where TimeGenerated > ago(1d)

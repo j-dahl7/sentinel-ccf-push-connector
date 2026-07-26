@@ -49,7 +49,10 @@
           ],
           "connectivityCriteria": [
             {
-              "type": "HasDataConnectors"
+              "type": "IsConnectedQuery",
+              "value": [
+                "FeodoTracker_CL\n| summarize LastLogReceived = max(TimeGenerated)\n| project IsConnected = LastLogReceived > ago(7d)"
+              ]
             }
           ],
           "availability": {

@@ -4,7 +4,7 @@
     {
       "type": 1,
       "content": {
-        "json": "# Threat Intelligence Dashboard\nMonitors botnet C2 indicators ingested from [abuse.ch Feodotracker](https://feodotracker.abuse.ch/) via the CCF Push connector.\n\n**Table:** `FeodoTracker_CL` | **Malware families:** Dridex, Emotet, TrickBot, QakBot, BumbleBee, Pikabot, and others"
+        "json": "# Feodotracker Review Dashboard\nExplores third-party IP indicator rows ingested from [abuse.ch Feodotracker](https://feodotracker.abuse.ch/) through the CCF Push connector. Feed matches require freshness and contextual validation before response.\n\n**Table:** `FeodoTracker_CL`"
       },
       "name": "header"
     },
@@ -42,7 +42,7 @@
         "version": "KqlItem/1.0",
         "query": "FeodoTracker_CL\n| where TimeGenerated {TimeRange}\n| summarize Indicators = dcount(ip_address) by malware, bin(TimeGenerated, 1d)\n| render timechart",
         "size": 1,
-        "title": "C2 Activity Timeline",
+        "title": "Feed Indicator Timeline",
         "queryType": 0,
         "visualization": "timechart"
       },
@@ -64,9 +64,9 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "FeodoTracker_CL\n| where TimeGenerated {TimeRange}\n| summarize ActiveC2 = dcount(ip_address), LatestActivity = max(last_seen), TopCountries = make_set(country, 5) by malware\n| sort by ActiveC2 desc",
+        "query": "FeodoTracker_CL\n| where TimeGenerated {TimeRange}\n| where status == \"online\"\n| summarize OnlineFeedIPs = dcount(ip_address), LatestFeedObservation = max(last_seen), Countries = make_set(country, 5) by malware\n| sort by OnlineFeedIPs desc",
         "size": 1,
-        "title": "Active Malware Families",
+        "title": "Online Feed IPs by Malware Label",
         "queryType": 0,
         "visualization": "table"
       },
@@ -88,15 +88,15 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "let ActiveC2 = FeodoTracker_CL\n| where TimeGenerated {TimeRange}\n| where status == \"online\"\n| distinct ip_address, malware;\nunion isfuzzy=true\n    (datatable(TimeGenerated:datetime, SourceIP:string, DestinationIP:string, LogSource:string)[]),\n    (CommonSecurityLog | where TimeGenerated {TimeRange} | where isnotempty(DestinationIP) | project TimeGenerated, SourceIP, DestinationIP, LogSource = DeviceProduct),\n    (DnsEvents | where TimeGenerated {TimeRange} | where isnotempty(IPAddresses) | mv-expand IPAddress = split(IPAddresses, \",\") | project TimeGenerated, SourceIP = ClientIP, DestinationIP = tostring(IPAddress), LogSource = \"DNS\")\n| join kind=inner ActiveC2 on $left.DestinationIP == $right.ip_address\n| project TimeGenerated, SourceIP, DestinationIP, malware, LogSource\n| sort by TimeGenerated desc\n| take 50",
+        "query": "let FeedIPs = FeodoTracker_CL\n| where TimeGenerated {TimeRange}\n| where status == \"online\"\n| distinct ip_address, malware;\nunion isfuzzy=true\n    (datatable(TimeGenerated:datetime, SourceIP:string, DestinationIP:string, LogSource:string)[]),\n    (CommonSecurityLog | where TimeGenerated {TimeRange} | where isnotempty(DestinationIP) | project TimeGenerated, SourceIP, DestinationIP, LogSource = DeviceProduct),\n    (DnsEvents | where TimeGenerated {TimeRange} | where isnotempty(IPAddresses) | mv-expand IPAddress = split(IPAddresses, \",\") | project TimeGenerated, SourceIP = ClientIP, DestinationIP = tostring(IPAddress), LogSource = \"DNS\")\n| join kind=inner FeedIPs on $left.DestinationIP == $right.ip_address\n| project TimeGenerated, SourceIP, DestinationIP, malware, LogSource\n| sort by TimeGenerated desc\n| take 50",
         "size": 1,
-        "title": "Network Traffic to Known C2 (Cross-Source)",
+        "title": "Network Log Matches to Feed IPs (Triage Only)",
         "queryType": 0,
         "visualization": "table"
       },
       "name": "network-ti-matches"
     }
   ],
-  "fallbackResourceIds": [ "placeholder" ],
+  "fallbackResourceIds": [],
   "fromTemplateId": "sentinel-ThreatIntelDashboard"
 }

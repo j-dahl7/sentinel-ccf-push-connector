@@ -5,12 +5,11 @@
 // =============================================================================
 
 // -----------------------------------------------------------------------------
-// RULE 1: New Botnet Family Detected
+// RULE 1: New Feed Malware Label Observed
 // Severity: High
-// MITRE: T1071 (Application Layer Protocol)
-// Description: Fires when a malware family appears in the Feodotracker feed
-//   for the first time — no historical records in the last 30 days. A new
-//   family indicates a new campaign or previously unknown botnet infrastructure.
+// ATT&CK: No technique asserted from feed metadata alone.
+// Description: Selects a label in the latest hour that is absent from the
+//   preceding workspace lookback. Gaps and naming changes can do this too.
 // -----------------------------------------------------------------------------
 let KnownFamilies = FeodoTracker_CL
     | where TimeGenerated > ago(30d) and TimeGenerated < ago(1h)
@@ -33,15 +32,14 @@ FeodoTracker_CL
     Countries
 
 // -----------------------------------------------------------------------------
-// RULE 2: C2 Infrastructure Surge
+// RULE 2: Feed Indicator Count Increase
 // Severity: Medium
-// MITRE: T1583 (Acquire Infrastructure)
-// Description: Detects a greater than 50% increase in active C2 IPs compared
-//   to the previous 24-hour window. A sudden spike in C2 infrastructure often
-//   precedes a large-scale spam or malware campaign.
+// ATT&CK: No technique asserted from a feed-volume change alone.
+// Description: Selects a greater than 50% increase in distinct online feed IPs
+//   between adjacent 24-hour windows. Feed coverage changes can do this too.
 // -----------------------------------------------------------------------------
 let Current = FeodoTracker_CL
-    | where TimeGenerated > ago(1h)
+    | where TimeGenerated > ago(1d)
     | where status == "online"
     | summarize CurrentCount = dcount(ip_address)
     | extend _key = 1;
@@ -62,12 +60,11 @@ Current
     ChangePercent
 
 // -----------------------------------------------------------------------------
-// RULE 3: High-Confidence Active C2
+// RULE 3: Recent Feed Indicators on 443 or 8443
 // Severity: High
-// MITRE: T1071 (Application Layer Protocol), T1573 (Encrypted Channel)
-// Description: Flags recently active C2 servers using encrypted communication
-//   ports (443, 8443). C2 traffic over port 443 blends with legitimate HTTPS
-//   traffic, making these the highest priority for network blocking rules.
+// ATT&CK: Port alone does not establish T1071 or T1573.
+// Description: Selects recent online feed indicators on ports commonly
+//   associated with TLS. It does not prove encryption, evasion, or compromise.
 // -----------------------------------------------------------------------------
 FeodoTracker_CL
 | where TimeGenerated > ago(1h)
@@ -85,12 +82,11 @@ FeodoTracker_CL
     last_seen
 
 // -----------------------------------------------------------------------------
-// RULE 4: Geographic C2 Concentration
+// RULE 4: Feed Country Concentration
 // Severity: Medium
-// MITRE: T1583 (Acquire Infrastructure)
-// Description: Alerts when 10 or more C2 IPs from the same country appear in
-//   a single ingestion batch. Concentration in a single country can indicate a
-//   bulletproof hosting provider or compromised hosting infrastructure.
+// ATT&CK: Geography alone does not establish T1583.
+// Description: Selects countries associated with 10 or more feed IPs in the
+//   last hour. It is a geographic aggregation, not attribution.
 // -----------------------------------------------------------------------------
 FeodoTracker_CL
 | where TimeGenerated > ago(1h)
@@ -110,12 +106,11 @@ FeodoTracker_CL
     SampleIPs
 
 // -----------------------------------------------------------------------------
-// RULE 5: Network Traffic to Known Botnet C2
+// RULE 5: Network Traffic Match to Feed Indicator
 // Severity: High
-// MITRE: T1071 (Application Layer Protocol), T1102 (Web Service)
-// Description: Correlates active Feodotracker C2 IPs with network traffic logs.
-//   Fires when any device in your environment communicates with a known C2
-//   server. Uses union isfuzzy=true to work across available log sources.
+// ATT&CK: IP matching alone does not establish T1071 or T1102.
+// Description: Correlates recent Feodotracker IPs with supported network-log
+//   fields. A match is a triage lead, not proof of compromise.
 // -----------------------------------------------------------------------------
 let ActiveC2 = FeodoTracker_CL
     | where TimeGenerated > ago(7d)
