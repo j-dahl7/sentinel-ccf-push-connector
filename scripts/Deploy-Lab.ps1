@@ -406,11 +406,11 @@ if (-not $SkipSentinel) {
     $rules = @(
         @{
             displayName = "LAB - New Feed Malware Label Observed"
-            description = "Selects a malware label present in the last hour but absent from the preceding 30-day workspace lookback. Ingestion gaps and label changes can produce the same result."
+            description = "Selects a malware label present in the last hour but absent from the preceding 14-day workspace lookback. Ingestion gaps and label changes can produce the same result."
             severity    = "High"
             query       = @"
 let KnownFamilies = FeodoTracker_CL
-    | where TimeGenerated > ago(30d) and TimeGenerated < ago(1h)
+    | where TimeGenerated > ago(14d) and TimeGenerated < ago(1h)
     | summarize arg_max(TimeGenerated, *) by ip_address
     | distinct malware;
 FeodoTracker_CL
@@ -420,6 +420,7 @@ FeodoTracker_CL
 | summarize IndicatorCount = dcount(ip_address), FirstIP = min(ip_address), Countries = make_set(country, 10) by malware
 | project TimeGenerated = now(), malware, IndicatorCount, FirstIP, Countries
 "@
+            queryPeriod    = "P14D"
             tactics        = @()
             techniques     = @()
             subTechniques  = @()
@@ -445,6 +446,7 @@ Current | join kind=inner (Previous) on _key
 | where ChangePercent > 50
 | project TimeGenerated = now(), CurrentCount, PreviousCount, ChangePercent
 "@
+            queryPeriod    = "P2D"
             tactics        = @()
             techniques     = @()
             subTechniques  = @()
@@ -497,6 +499,7 @@ union isfuzzy=true
 | join kind=inner ActiveC2 on `$left.DestinationIP == `$right.ip_address
 | project TimeGenerated, SourceIP, DestinationIP, malware, LogSource, Details
 "@
+            queryPeriod    = "P7D"
             tactics        = @()
             techniques     = @()
             subTechniques  = @()
@@ -580,7 +583,11 @@ union isfuzzy=true
                 severity              = $rule.severity
                 query                 = $rule.query
                 queryFrequency        = "PT1H"
-                queryPeriod           = "P1D"
+                # A scheduled rule only evaluates records whose TimeGenerated falls
+                # inside queryPeriod, so any rule whose query reaches further back
+                # than one day must widen it or its baseline subquery silently
+                # resolves to an empty set. Sentinel caps the lookback at 14 days.
+                queryPeriod           = if ($rule.queryPeriod) { $rule.queryPeriod } else { "P1D" }
                 triggerOperator       = "GreaterThan"
                 triggerThreshold      = 0
                 suppressionDuration   = "PT5H"
