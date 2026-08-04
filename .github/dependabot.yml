@@ -1,0 +1,35 @@
+version: 2
+
+# This repository is the source of truth for these dependencies. It is mirrored
+# byte-for-byte into nine-lives-security/nine-lives-zero-trust, where a
+# provenance check rejects any edit made downstream. Dependency updates
+# therefore have to land here first, or they cannot be merged anywhere.
+
+updates:
+  - package-ecosystem: "pip"
+    directory: "/scripts"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    groups:
+      pip-minor:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    groups:
+      actions-minor:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
