@@ -28,6 +28,11 @@ the connector must then be packaged with Microsoft's current tooling.
 - Owner or User Access Administrator on the target scope, or equivalent exact
   permission to assign Monitoring Metrics Publisher on the generated DCR
 
+The provided sender is intentionally scoped to **Azure public cloud**. Its token
+audience, Microsoft identity endpoint, and allowed DCE hostname suffix are not
+parameterized for Azure Government, Azure operated by 21Vianet, or other cloud
+environments. Adapt and revalidate those endpoints before using it elsewhere.
+
 Use a disposable lab subscription. Log Analytics ingestion/retention and
 Sentinel usage can incur charges; the Feodotracker feed itself is free. CCF
 Push is a preview surface, so validate current platform behavior before any
@@ -128,6 +133,9 @@ production-ready detections or proof that a host is compromised.
 | Recent Feed Indicators on 443 or 8443 | High | Port alone does not establish T1071 or T1573 |
 | Feed Country Concentration | Medium | Geography alone does not establish T1583 |
 | Network Traffic Match to Feed Indicator | High | IP matching alone does not establish T1071 or T1102 |
+
+The first rule compares the latest hour with the preceding **14-day** workspace
+lookback, matching the query period deployed by `Deploy-Lab.ps1`.
 
 ## Cleanup
 
