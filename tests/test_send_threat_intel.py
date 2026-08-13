@@ -184,6 +184,27 @@ class SenderTests(unittest.TestCase):
         self.assertNotIn("ago(30d) and TimeGenerated < ago(1h)", standalone)
         self.assertIn("**14-day** workspace", readme)
 
+    def test_new_label_baseline_keeps_every_prior_family_for_each_ip(self):
+        repository_root = MODULE_PATH.parents[1]
+        deploy = (MODULE_PATH.parent / "Deploy-Lab.ps1").read_text(encoding="utf-8")
+        standalone = (repository_root / "detection" / "analytics-rules.kql").read_text(
+            encoding="utf-8"
+        )
+        fixture = (
+            repository_root / "tests" / "fixtures" / "new-malware-family-baseline.kql"
+        ).read_text(encoding="utf-8")
+
+        for source in (deploy, standalone):
+            known_families = source.split("let KnownFamilies =", 1)[1].split(";", 1)[0]
+            self.assertIn("| where isnotempty(malware)", known_families)
+            self.assertIn("| distinct malware", known_families)
+            self.assertNotIn("arg_max", known_families)
+
+        self.assertIn('"A", "US"', fixture)
+        self.assertIn('"B", "US"', fixture)
+        self.assertEqual(fixture.count('"A", "US"'), 2)
+        self.assertIn("must return zero rows", fixture)
+
     def test_sender_documentation_is_explicitly_public_azure_only(self):
         readme = (MODULE_PATH.parents[1] / "README.md").read_text(encoding="utf-8")
 
