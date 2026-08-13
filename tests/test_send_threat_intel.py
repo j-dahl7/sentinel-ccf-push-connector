@@ -170,6 +170,26 @@ class SenderTests(unittest.TestCase):
         self.assertIn("Azure returned an untrusted pagination URL", deploy)
         self.assertNotIn("$existingRuleIdsByName", deploy)
 
+    def test_new_label_rule_uses_one_14_day_contract_everywhere(self):
+        repository_root = MODULE_PATH.parents[1]
+        deploy = (MODULE_PATH.parent / "Deploy-Lab.ps1").read_text(encoding="utf-8")
+        standalone = (repository_root / "detection" / "analytics-rules.kql").read_text(
+            encoding="utf-8"
+        )
+        readme = (repository_root / "README.md").read_text(encoding="utf-8")
+
+        self.assertIn("ago(14d) and TimeGenerated < ago(1h)", deploy)
+        self.assertIn('queryPeriod    = "P14D"', deploy)
+        self.assertIn("ago(14d) and TimeGenerated < ago(1h)", standalone)
+        self.assertNotIn("ago(30d) and TimeGenerated < ago(1h)", standalone)
+        self.assertIn("**14-day** workspace", readme)
+
+    def test_sender_documentation_is_explicitly_public_azure_only(self):
+        readme = (MODULE_PATH.parents[1] / "README.md").read_text(encoding="utf-8")
+
+        self.assertIn("Azure public cloud", readme)
+        self.assertIn("not", readme.partition("Azure public cloud")[2][:300])
+
     def test_ccf_artifacts_align_with_current_packaging_contract(self):
         connector_root = MODULE_PATH.parents[1] / "connector"
         definition = json.loads(

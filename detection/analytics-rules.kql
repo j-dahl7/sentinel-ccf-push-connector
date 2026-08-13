@@ -12,7 +12,7 @@
 //   preceding workspace lookback. Gaps and naming changes can do this too.
 // -----------------------------------------------------------------------------
 let KnownFamilies = FeodoTracker_CL
-    | where TimeGenerated > ago(30d) and TimeGenerated < ago(1h)
+    | where TimeGenerated > ago(14d) and TimeGenerated < ago(1h)
     | summarize arg_max(TimeGenerated, *) by ip_address
     | distinct malware;
 FeodoTracker_CL
