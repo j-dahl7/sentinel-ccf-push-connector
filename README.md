@@ -4,12 +4,13 @@ Build a custom Microsoft Sentinel connector using the Codeless Connector Framewo
 
 ## Validation Boundary
 
-The hardened July 25, 2026 revision passed offline Python unit/compilation
-checks, PowerShell parser checks, JSON parsing, Bicep compilation, workflow and
-dependency review, and credential-pattern scanning. It was not deployed to a
-live CCF preview environment and no indicator was ingested into Sentinel for
-this revision. Portal-generated resources, schemas, permissions, supported
-regions, and ingestion behavior must be confirmed in the target tenant.
+The July 25 hardened baseline passed offline Python/PowerShell checks, JSON
+parsing, Bicep compilation, workflow/dependency review, and credential-pattern
+scanning. After the August 13, 2026 lookback and cloud-scope corrections, all 19
+Python contract tests passed again. The current revision was not deployed to a
+live CCF preview environment and no indicator was ingested into Sentinel.
+Portal-generated resources, schemas, permissions, supported regions, and
+ingestion behavior must be confirmed in the target tenant.
 `Deploy-Lab.ps1` deliberately does not pretend that deploying a raw connector
 definition is equivalent to a packaged Microsoft Sentinel solution. It validates
 the four local CCF artifacts and deploys the owned sandbox, rules, and workbook;
