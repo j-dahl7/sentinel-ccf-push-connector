@@ -411,7 +411,7 @@ if (-not $SkipSentinel) {
             query       = @"
 let KnownFamilies = FeodoTracker_CL
     | where TimeGenerated > ago(14d) and TimeGenerated < ago(1h)
-    | summarize arg_max(TimeGenerated, *) by ip_address
+    | where isnotempty(malware)
     | distinct malware;
 FeodoTracker_CL
 | where TimeGenerated > ago(1h)

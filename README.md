@@ -135,8 +135,11 @@ production-ready detections or proof that a host is compromised.
 | Feed Country Concentration | Medium | Geography alone does not establish T1583 |
 | Network Traffic Match to Feed Indicator | High | IP matching alone does not establish T1071 or T1102 |
 
-The first rule compares the latest hour with the preceding **14-day** workspace
-lookback, matching the query period deployed by `Deploy-Lab.ps1`.
+The first rule compares the latest hour with every malware label observed in
+the preceding **14-day** workspace lookback, matching the query period deployed
+by `Deploy-Lab.ps1`. It retains all prior labels even when one IP changes labels
+over time; `tests/fixtures/new-malware-family-baseline.kql` captures the
+`A -> B -> A` regression and should return zero rows.
 
 ## Cleanup
 
