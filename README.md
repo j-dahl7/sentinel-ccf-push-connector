@@ -22,6 +22,9 @@ mock HTTP traffic, and the deployment/API-contract cases use PowerShell Azure
 mocks. Those PowerShell cases are skipped if `pwsh` is unavailable. The dated
 test totals above are historical observations, not a claim about today's suite
 size or a substitute for the current run output.
+The separate `validate.yml` pull-request workflow compiles Bicep and runs the
+offline suite without cloud credentials or an ingestion step. It does not
+enable or change the independently controlled ingestion workflow.
 
 ## Prerequisites and Permissions
 
