@@ -423,7 +423,6 @@ FeodoTracker_CL
             queryPeriod    = "P14D"
             tactics        = @()
             techniques     = @()
-            subTechniques  = @()
         },
         @{
             displayName = "LAB - Feed Indicator Count Increase"
@@ -449,7 +448,6 @@ Current | join kind=inner (Previous) on _key
             queryPeriod    = "P2D"
             tactics        = @()
             techniques     = @()
-            subTechniques  = @()
         },
         @{
             displayName = "LAB - Recent Feed Indicators on 443 or 8443"
@@ -466,7 +464,6 @@ FeodoTracker_CL
 "@
             tactics        = @()
             techniques     = @()
-            subTechniques  = @()
         },
         @{
             displayName = "LAB - Feed Country Concentration"
@@ -481,7 +478,6 @@ FeodoTracker_CL
 "@
             tactics        = @()
             techniques     = @()
-            subTechniques  = @()
         },
         @{
             displayName = "LAB - Network Traffic Match to Feed Indicator"
@@ -502,7 +498,6 @@ union isfuzzy=true
             queryPeriod    = "P7D"
             tactics        = @()
             techniques     = @()
-            subTechniques  = @()
         }
     )
 
@@ -594,7 +589,6 @@ union isfuzzy=true
                 suppressionEnabled    = $false
                 tactics               = $rule.tactics
                 techniques            = $rule.techniques
-                subTechniques         = $rule.subTechniques
                 enabled               = [bool]$EnableSentinelRules
                 incidentConfiguration = @{
                     createIncident        = $true

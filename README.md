@@ -16,6 +16,13 @@ definition is equivalent to a packaged Microsoft Sentinel solution. It validates
 the four local CCF artifacts and deploys the owned sandbox, rules, and workbook;
 the connector must then be packaged with Microsoft's current tooling.
 
+For the current offline suite, run `python -m unittest discover -s tests -v`.
+It reports the actual run/pass/skip totals for your environment: sender tests
+mock HTTP traffic, and the deployment/API-contract cases use PowerShell Azure
+mocks. Those PowerShell cases are skipped if `pwsh` is unavailable. The dated
+test totals above are historical observations, not a claim about today's suite
+size or a substitute for the current run output.
+
 ## Prerequisites and Permissions
 
 - Azure CLI authenticated to the intended subscription and tenant
