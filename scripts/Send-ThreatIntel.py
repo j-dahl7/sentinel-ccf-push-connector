@@ -28,6 +28,14 @@ RETRY_DELAY = 5
 AZURE_INGEST_HOST_SUFFIX = ".ingest.monitor.azure.com"
 DCR_ID_PATTERN = re.compile(r"dcr-[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 STREAM_NAME_PATTERN = re.compile(r"Custom-[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+MAX_FEED_BYTES = 4 * 1024 * 1024
+MAX_INDICATORS = 20_000
+FEED_CONNECT_TIMEOUT = 10
+FEED_READ_TIMEOUT = 10
+FEED_BODY_SECONDS = 60
+MAX_BATCH_BYTES = 512 * 1024
+FIELD_MAX_BYTES = {"ip_address": 64, "port": 5, "status": 32, "malware": 128,
+                   "first_seen": 64, "last_online": 64, "country": 8}
 
 
 def get_env(name: str, default: str | None = None) -> str:
@@ -52,24 +60,69 @@ def get_oauth_token(tenant_id: str, client_id: str, client_secret: str) -> str:
 
 
 def fetch_indicators() -> list[dict]:
-    """Fetch C2 indicators from abuse.ch Feodotracker."""
+    """Read the fixed provider within byte/time limits before parsing or ingestion."""
     print(f"Fetching indicators from {FEODO_URL}")
     resp = requests.get(
         FEODO_URL,
-        headers={"User-Agent": "nine-lives-zero-trust-ccf-lab/1.0"},
-        timeout=30,
+        headers={"User-Agent": "nine-lives-zero-trust-ccf-lab/1.0", "Accept-Encoding": "identity"},
+        timeout=(FEED_CONNECT_TIMEOUT, FEED_READ_TIMEOUT),
+        stream=True,
+        allow_redirects=False,
     )
-    resp.raise_for_status()
-    data = resp.json()
-    indicators = data if isinstance(data, list) else data.get("data", []) if isinstance(data, dict) else None
+    try:
+        if resp.status_code != 200:
+            raise ValueError(f"Feodotracker returned unexpected HTTP status {resp.status_code}")
+        if resp.headers.get("Content-Encoding", "identity").lower() not in ("", "identity"):
+            raise ValueError("Compressed feed responses are refused; the request requires identity encoding")
+        length = resp.headers.get("Content-Length")
+        if length is not None and (not length.isdecimal() or int(length) > MAX_FEED_BYTES):
+            raise ValueError("Feodotracker declared an invalid or excessive response size")
+        deadline = time.monotonic() + FEED_BODY_SECONDS
+        body = bytearray()
+        while True:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Feodotracker body exceeded its read budget")
+            # read1 returns available bytes instead of waiting to fill a chunk;
+            # a keepalive trickle must return control to the deadline check.
+            chunk = resp.raw.read1(min(65536, MAX_FEED_BYTES + 1 - len(body)), decode_content=False)
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Feodotracker body exceeded its read budget")
+            if not chunk:
+                break
+            body.extend(chunk)
+            if len(body) > MAX_FEED_BYTES:
+                raise ValueError("Feodotracker response exceeded its byte limit")
+        data = json.loads(body)
+    finally:
+        resp.close()
+    indicators = data if isinstance(data, list) else data.get("data") if isinstance(data, dict) else None
     if not isinstance(indicators, list):
         raise ValueError("Feodotracker response did not contain an indicator list")
+    validate_indicator_limits(indicators)
     print(f"  Fetched {len(indicators)} indicators")
     return indicators
 
 
+def validate_indicator_limits(indicators: list[dict]) -> None:
+    """Reject the whole feed on overflow; never ingest its valid-looking prefix."""
+    if not isinstance(indicators, list) or len(indicators) > MAX_INDICATORS:
+        raise ValueError("Feodotracker indicator count exceeded its limit or is not a list")
+    for indicator in indicators:
+        if not isinstance(indicator, dict):
+            continue  # Existing malformed-record handling remains in transform.
+        for field, limit in FIELD_MAX_BYTES.items():
+            value = indicator.get(field)
+            if value is None:
+                continue
+            if not isinstance(value, (str, int, float)) or isinstance(value, bool):
+                raise ValueError(f"Feodotracker {field} must be a bounded scalar")
+            if len(str(value).encode("utf-8")) > limit:
+                raise ValueError(f"Feodotracker {field} exceeded its byte limit")
+
+
 def transform(indicators: list[dict]) -> list[dict]:
     """Transform Feodotracker JSON to table schema."""
+    validate_indicator_limits(indicators)
     records = []
     skipped = 0
     for ind in indicators:
@@ -154,6 +207,8 @@ def send_batch(
 ) -> int:
     """Send a batch of records to the DCE ingestion endpoint."""
     url = build_ingestion_url(dce_uri, dcr_id, stream_name)
+    if len(records) > BATCH_SIZE or len(json.dumps(records).encode("utf-8")) > MAX_BATCH_BYTES:
+        raise ValueError("Ingestion batch exceeded its record or byte limit")
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             resp = requests.post(
@@ -199,17 +254,17 @@ def main():
     dcr_id = get_env("CCF_DCR_ID")
     stream_name = get_env("CCF_STREAM_NAME", "Custom-FeodoTrackerStream")
 
-    # Authenticate
-    print("Authenticating via OAuth 2.0 client credentials...")
-    token = get_oauth_token(tenant_id, client_id, client_secret)
-    print("  Token acquired")
-
-    # Fetch and transform
+    # Validate the destination and complete feed before acquiring a credential
+    # or sending any prefix of an oversized upstream response.
+    build_ingestion_url(dce_uri, dcr_id, stream_name)
     indicators = fetch_indicators()
     records = transform(indicators)
     print(f"  Transformed {len(records)} records")
     if not records:
         raise RuntimeError("No valid Feodotracker indicators were available to ingest")
+    print("Authenticating via OAuth 2.0 client credentials...")
+    token = get_oauth_token(tenant_id, client_id, client_secret)
+    print("  Token acquired")
 
     # Send in batches. total_batches is computed up front so an empty feed still
     # reports cleanly instead of failing on an unbound name after all the work.
