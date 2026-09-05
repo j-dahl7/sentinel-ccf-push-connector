@@ -29,7 +29,7 @@ enable or change the independently controlled ingestion workflow.
 ## Prerequisites and Permissions
 
 - Azure CLI authenticated to the intended subscription and tenant
-- PowerShell 7.3+, Python 3.10+, and `pip`
+- PowerShell 7.4+ (stable native-command failure propagation), Python 3.10+, and `pip`
 - Access to the official Azure-Sentinel repository and its current
   `Create-Azure-Sentinel-Solution` packaging tooling
 - Permission to create the resource group plus Contributor and Microsoft

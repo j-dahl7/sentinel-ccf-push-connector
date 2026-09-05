@@ -1,4 +1,5 @@
-#Requires -Version 7.3
+#Requires -Version 7.4
+
 <#
 .SYNOPSIS
     Deploys the CCF Push Connector Lab.
@@ -104,11 +105,25 @@ function Get-AzureResourceGroup {
     $previousPreference = $PSNativeCommandUseErrorActionPreference
     try {
         $PSNativeCommandUseErrorActionPreference = $false
-        $json = az group show --name $Name --output json 2>$null
-        if ($LASTEXITCODE -ne 0 -or -not $json) {
-            return $null
+        $existsOutput = az group exists --name $Name --output tsv 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Azure group existence lookup failed for '$Name'; refusing to treat a failed read as absence."
         }
-        return ($json | ConvertFrom-Json)
+        $exists = ($existsOutput -join "`n").Trim()
+        if ($exists -ceq 'false') { return $null }
+        if ($exists -cne 'true') {
+            throw "Azure returned an unexpected group-existence response for '$Name'."
+        }
+        $json = az group show --name $Name --output json 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Azure group state lookup failed for '$Name'; refusing to continue with incomplete state."
+        }
+        try { $group = ($json -join "`n") | ConvertFrom-Json }
+        catch { throw "Azure returned invalid group state for '$Name'." }
+        if ($group -isnot [pscustomobject] -or $group.name -isnot [string] -or $group.name -ne $Name) {
+            throw "Azure returned invalid group state for '$Name'."
+        }
+        return $group
     }
     finally {
         $PSNativeCommandUseErrorActionPreference = $previousPreference

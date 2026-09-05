@@ -1,4 +1,5 @@
-#Requires -Version 7.3
+#Requires -Version 7.4
+
 <#
 .SYNOPSIS
     Validates the exact CCF Push connector resources recorded by Deploy-Lab.ps1.
