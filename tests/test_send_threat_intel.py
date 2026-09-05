@@ -211,6 +211,12 @@ class SenderTests(unittest.TestCase):
         self.assertIn("Azure public cloud", readme)
         self.assertIn("not", readme.partition("Azure public cloud")[2][:300])
 
+    def test_native_failure_contract_requires_stable_powershell_support(self):
+        for name in ("Deploy-Lab.ps1", "Test-CCFPush.ps1"):
+            source = (MODULE_PATH.parent / name).read_text(encoding="utf-8")
+            self.assertTrue(source.startswith("#Requires -Version 7.4\n"), name)
+            self.assertIn("$PSNativeCommandUseErrorActionPreference = $true", source)
+
     def test_ccf_artifacts_align_with_current_packaging_contract(self):
         connector_root = MODULE_PATH.parents[1] / "connector"
         definition = json.loads(
@@ -315,7 +321,17 @@ class SenderTests(unittest.TestCase):
                         '{"id":"sub-1","tenantId":"tenant-1","name":"Test"}'
                         return
                     }
+                    if ($request -match '^group exists') {
+                        $global:LASTEXITCODE = 0
+                        if ($global:mode -eq 'exists_error') { $global:LASTEXITCODE = 1; 'false'; return }
+                        if ($global:mode -eq 'exists_malformed') { 'unknown'; return }
+                        if ($global:mode -in @('foreign', 'show_error', 'show_malformed')) { 'true' }
+                        else { 'false' }
+                        return
+                    }
                     if ($request -match '^group show') {
+                        if ($global:mode -eq 'show_error') { $global:LASTEXITCODE = 1; '{"name":"ccf-push-lab-rg"}'; return }
+                        if ($global:mode -eq 'show_malformed') { $global:LASTEXITCODE = 0; '{}'; return }
                         if ($global:mode -eq 'foreign') {
                             $global:LASTEXITCODE = 0
                             '{"name":"ccf-push-lab-rg","tags":{"nlzt-owner":"foreign"}}'
@@ -354,6 +370,18 @@ class SenderTests(unittest.TestCase):
                 }
                 if ($global:mutations.Count -ne 0) {
                     throw 'Foreign resource group collision caused a mutation'
+                }
+                foreach ($failureMode in @('exists_error', 'exists_malformed', 'show_error', 'show_malformed')) {
+                    $global:mode = $failureMode
+                    $readFailure = ''
+                    try { $null = & $env:CCF_DEPLOY_SCRIPT 6>&1 }
+                    catch { $readFailure = $_.Exception.Message }
+                    if ($readFailure -notmatch 'group existence lookup failed|unexpected group-existence response|group state lookup failed|invalid group state') {
+                        throw "Group read failure was not refused ($failureMode): $readFailure"
+                    }
+                    if ($global:mutations.Count -ne 0 -or (Test-Path -LiteralPath $env:CCF_STATE_PATH)) {
+                        throw "Group read failure caused a mutation or manifest write ($failureMode)"
+                    }
                 }
                 'OK'
                 """

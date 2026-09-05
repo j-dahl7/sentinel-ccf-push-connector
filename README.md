@@ -16,10 +16,20 @@ definition is equivalent to a packaged Microsoft Sentinel solution. It validates
 the four local CCF artifacts and deploys the owned sandbox, rules, and workbook;
 the connector must then be packaged with Microsoft's current tooling.
 
+For the current offline suite, run `python -m unittest discover -s tests -v`.
+It reports the actual run/pass/skip totals for your environment: sender tests
+mock HTTP traffic, and the deployment/API-contract cases use PowerShell Azure
+mocks. Those PowerShell cases are skipped if `pwsh` is unavailable. The dated
+test totals above are historical observations, not a claim about today's suite
+size or a substitute for the current run output.
+The separate `validate.yml` pull-request workflow compiles Bicep and runs the
+offline suite without cloud credentials or an ingestion step. It does not
+enable or change the independently controlled ingestion workflow.
+
 ## Prerequisites and Permissions
 
 - Azure CLI authenticated to the intended subscription and tenant
-- PowerShell 7.3+, Python 3.10+, and `pip`
+- PowerShell 7.4+ (stable native-command failure propagation), Python 3.10+, and `pip`
 - Access to the official Azure-Sentinel repository and its current
   `Create-Azure-Sentinel-Solution` packaging tooling
 - Permission to create the resource group plus Contributor and Microsoft

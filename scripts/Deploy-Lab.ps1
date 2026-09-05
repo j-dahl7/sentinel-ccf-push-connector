@@ -1,4 +1,5 @@
-#Requires -Version 7.3
+#Requires -Version 7.4
+
 <#
 .SYNOPSIS
     Deploys the CCF Push Connector Lab.
@@ -104,11 +105,25 @@ function Get-AzureResourceGroup {
     $previousPreference = $PSNativeCommandUseErrorActionPreference
     try {
         $PSNativeCommandUseErrorActionPreference = $false
-        $json = az group show --name $Name --output json 2>$null
-        if ($LASTEXITCODE -ne 0 -or -not $json) {
-            return $null
+        $existsOutput = az group exists --name $Name --output tsv 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Azure group existence lookup failed for '$Name'; refusing to treat a failed read as absence."
         }
-        return ($json | ConvertFrom-Json)
+        $exists = ($existsOutput -join "`n").Trim()
+        if ($exists -ceq 'false') { return $null }
+        if ($exists -cne 'true') {
+            throw "Azure returned an unexpected group-existence response for '$Name'."
+        }
+        $json = az group show --name $Name --output json 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Azure group state lookup failed for '$Name'; refusing to continue with incomplete state."
+        }
+        try { $group = ($json -join "`n") | ConvertFrom-Json }
+        catch { throw "Azure returned invalid group state for '$Name'." }
+        if ($group -isnot [pscustomobject] -or $group.name -isnot [string] -or $group.name -ne $Name) {
+            throw "Azure returned invalid group state for '$Name'."
+        }
+        return $group
     }
     finally {
         $PSNativeCommandUseErrorActionPreference = $previousPreference
@@ -423,7 +438,6 @@ FeodoTracker_CL
             queryPeriod    = "P14D"
             tactics        = @()
             techniques     = @()
-            subTechniques  = @()
         },
         @{
             displayName = "LAB - Feed Indicator Count Increase"
@@ -449,7 +463,6 @@ Current | join kind=inner (Previous) on _key
             queryPeriod    = "P2D"
             tactics        = @()
             techniques     = @()
-            subTechniques  = @()
         },
         @{
             displayName = "LAB - Recent Feed Indicators on 443 or 8443"
@@ -466,7 +479,6 @@ FeodoTracker_CL
 "@
             tactics        = @()
             techniques     = @()
-            subTechniques  = @()
         },
         @{
             displayName = "LAB - Feed Country Concentration"
@@ -481,7 +493,6 @@ FeodoTracker_CL
 "@
             tactics        = @()
             techniques     = @()
-            subTechniques  = @()
         },
         @{
             displayName = "LAB - Network Traffic Match to Feed Indicator"
@@ -502,7 +513,6 @@ union isfuzzy=true
             queryPeriod    = "P7D"
             tactics        = @()
             techniques     = @()
-            subTechniques  = @()
         }
     )
 
@@ -594,7 +604,6 @@ union isfuzzy=true
                 suppressionEnabled    = $false
                 tactics               = $rule.tactics
                 techniques            = $rule.techniques
-                subTechniques         = $rule.subTechniques
                 enabled               = [bool]$EnableSentinelRules
                 incidentConfiguration = @{
                     createIncident        = $true
