@@ -44,6 +44,23 @@ audience, Microsoft identity endpoint, and allowed DCE hostname suffix are not
 parameterized for Azure Government, Azure operated by 21Vianet, or other cloud
 environments. Adapt and revalidate those endpoints before using it elsewhere.
 
+The fixed Feodotracker download is streamed with a **4 MiB body cap** and a
+**20,000-indicator cap**. Redirects and compressed responses are refused (the
+request asks for identity encoding). Connect and individual reads time out at
+10 seconds; after headers arrive the body has a 60-second budget, checked around
+non-filling reads so keepalive trickles cannot indefinitely fill a large chunk.
+A read already in progress can last up to its 10-second timeout.
+
+Consumed fields have UTF-8 byte limits: IP/date fields 64, port 5, status 32,
+malware 128 and country 8. An overflow or unsupported nested field aborts the
+whole feed before token acquisition or ingestion; the valid-looking prefix is
+not sent. Ordinary malformed IP/port rows retain their documented skip behavior.
+Batches are also limited to 100 records and 512 KiB. These are conservative lab
+limits; investigate a rejected feed/schema change before deliberately changing
+them. Tests use synthetic responses and a loopback trickle server, without live
+Sentinel ingestion. Partial delivery on an unrelated later ingestion failure
+still requires review; this is not transactional ingestion.
+
 Use a disposable lab subscription. Log Analytics ingestion/retention and
 Sentinel usage can incur charges; the Feodotracker feed itself is free. CCF
 Push is a preview surface, so validate current platform behavior before any
