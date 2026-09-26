@@ -260,8 +260,11 @@ def main():
     indicators = fetch_indicators()
     records = transform(indicators)
     print(f"  Transformed {len(records)} records")
+    if not indicators:
+        print("Source feed is empty. No authentication or ingestion was attempted.")
+        return
     if not records:
-        raise RuntimeError("No valid Feodotracker indicators were available to ingest")
+        raise RuntimeError("The nonempty Feodo feed contained no valid indicators; refusing malformed input")
     print("Authenticating via OAuth 2.0 client credentials...")
     token = get_oauth_token(tenant_id, client_id, client_secret)
     print("  Token acquired")
@@ -279,7 +282,7 @@ def main():
         print(f"  Status: {status}")
 
     print(f"\nDone. Sent {total_sent} records in {total_batches} batches.")
-    print("Data will appear in FeodoTracker_CL within 5-10 minutes.")
+    print("Validate actual FeodoTracker_CL ingestion and source timestamps; no fixed latency is guaranteed.")
 
 
 if __name__ == "__main__":

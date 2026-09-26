@@ -1,4 +1,4 @@
-#Requires -Version 7.4
+#Requires -Version 7.6
 
 <#
 .SYNOPSIS
@@ -105,7 +105,7 @@ function Get-AzureResourceGroup {
     $previousPreference = $PSNativeCommandUseErrorActionPreference
     try {
         $PSNativeCommandUseErrorActionPreference = $false
-        $existsOutput = az group exists --name $Name --output tsv 2>$null
+        $existsOutput = az group exists --name $Name --output tsv
         if ($LASTEXITCODE -ne 0) {
             throw "Azure group existence lookup failed for '$Name'; refusing to treat a failed read as absence."
         }
@@ -114,7 +114,7 @@ function Get-AzureResourceGroup {
         if ($exists -cne 'true') {
             throw "Azure returned an unexpected group-existence response for '$Name'."
         }
-        $json = az group show --name $Name --output json 2>$null
+        $json = az group show --name $Name --output json
         if ($LASTEXITCODE -ne 0) {
             throw "Azure group state lookup failed for '$Name'; refusing to continue with incomplete state."
         }
@@ -157,7 +157,7 @@ function Get-PagedAzRestValues {
                 throw "Azure returned an untrusted pagination URL '$nextUrl'."
             }
         }
-        $page = az rest --method GET --url $nextUrl 2>$null | ConvertFrom-Json
+        $page = az rest --method GET --url $nextUrl | ConvertFrom-Json
         foreach ($item in @($page.value)) {
             $items.Add($item)
         }
@@ -206,26 +206,28 @@ function Assert-ConnectorArtifacts {
         throw "A required CCF connector artifact is missing or invalid JSON: $($_.Exception.Message)"
     }
 
-    $definitionResource = @($definition.resources)
-    $tableResource = @($table.resources)
-    $dcrResource = @($dcr.resources)
-    $dataConnectorResource = @($dataConnector.resources)
     $streamName = 'Custom-FeodoTrackerStream'
-    if ($definitionResource.Count -ne 1 -or
-        $definitionResource[0].name -ne $ConnectorDefinitionName -or
-        $definitionResource[0].properties.connectorUiConfig.id -ne $ConnectorDefinitionName -or
-        $tableResource.Count -ne 1 -or
-        $tableResource[0].apiVersion -ne '2025-07-01' -or
-        $tableResource[0].properties.schema.name -ne 'FeodoTracker_CL' -or
-        @($tableResource[0].properties.schema.columns | Where-Object { $_.name -eq 'TimeGenerated' -and $_.type -eq 'datetime' }).Count -ne 1 -or
-        $dcrResource.Count -ne 1 -or
-        -not $dcrResource[0].properties.streamDeclarations.$streamName -or
-        $dcrResource[0].properties.dataFlows[0].outputStream -ne 'Custom-FeodoTracker_CL' -or
-        $dataConnectorResource.Count -ne 1 -or
-        $dataConnectorResource[0].kind -ne 'Push' -or
-        $dataConnectorResource[0].properties.connectorDefinitionName -ne $ConnectorDefinitionName -or
-        $dataConnectorResource[0].properties.dcrConfig.streamName -ne $streamName) {
-        throw 'The four CCF artifacts disagree on the connector ID, table, stream, API version, or resource kind.'
+    if ($definition -isnot [pscustomobject] -or $table -isnot [pscustomobject] -or
+        $dcr -isnot [pscustomobject] -or $dataConnector -isnot [pscustomobject] -or
+        $definition.type -ne 'Microsoft.SecurityInsights/dataConnectorDefinitions' -or
+        $definition.name -ne $ConnectorDefinitionName -or
+        $definition.properties.connectorUiConfig.id -ne $ConnectorDefinitionName -or
+        $table.type -ne 'Microsoft.OperationalInsights/workspaces/tables' -or
+        $table.name -ne 'FeodoTracker_CL' -or $table.apiVersion -ne '2025-07-01' -or
+        $table.properties.schema.name -ne 'FeodoTracker_CL' -or
+        @($table.properties.schema.columns | Where-Object { $_.name -eq 'TimeGenerated' -and $_.type -eq 'datetime' }).Count -ne 1 -or
+        $dcr.type -ne 'Microsoft.Insights/dataCollectionRules' -or
+        -not $dcr.properties.streamDeclarations.$streamName -or
+        $dcr.properties.dataFlows[0].outputStream -ne 'Custom-FeodoTracker_CL' -or
+        $dataConnector.type -ne 'Microsoft.SecurityInsights/dataConnectors' -or
+        $dataConnector.kind -ne 'Push' -or
+        $dataConnector.properties.connectorDefinitionName -ne $ConnectorDefinitionName -or
+        $dataConnector.properties.dcrConfig.streamName -ne $streamName -or
+        $dataConnector.properties.dcrConfig.dataCollectionEndpoint -ne "[[parameters('dcrConfig').dataCollectionEndpoint]" -or
+        $dataConnector.properties.dcrConfig.dataCollectionRuleImmutableId -ne "[[parameters('dcrConfig').dataCollectionRuleImmutableId]" -or
+        $dataConnector.properties.auth.appId -ne "[[parameters('auth').appId]" -or
+        $dataConnector.properties.auth.servicePrincipalId -ne "[[parameters('auth').servicePrincipalId]") {
+        throw 'CCF packaging requires matching bare resources and documented escaped runtime expressions, not ARM wrappers or literal placeholders.'
     }
 }
 
@@ -238,7 +240,7 @@ Write-Host ""
 # --- Pre-flight checks ---
 Write-Host "[0/6] Pre-flight checks..." -ForegroundColor Yellow
 
-$account = az account show 2>$null | ConvertFrom-Json
+$account = az account show | ConvertFrom-Json
 if (-not $account) {
     Write-Error "Not logged in. Run 'az login' first."
 }
@@ -256,8 +258,6 @@ if (Test-Path -LiteralPath $StatePath) {
 }
 
 $resourceGroupObject = Get-AzureResourceGroup -Name $ResourceGroup
-Assert-ConnectorArtifacts
-Write-Host '  Local CCF artifact consistency: passed' -ForegroundColor DarkGray
 
 # --- Destroy ---
 if ($Destroy) {
@@ -287,11 +287,26 @@ if ($Destroy) {
     return
 }
 
+Assert-ConnectorArtifacts
+Write-Host '  Local CCF artifact consistency: passed' -ForegroundColor DarkGray
+
 if ($resourceGroupObject -and -not $state) {
     throw "Resource group '$ResourceGroup' already exists but ownership state '$StatePath' is missing. Refusing to adopt, overwrite, or delete it."
 }
 if ($resourceGroupObject) {
     Assert-OwnedResourceGroup -Group $resourceGroupObject -State $state
+}
+
+# Enabling is a second deployment phase, after the generated package creates the table.
+if ($EnableSentinelRules -and -not $SkipSentinel) {
+    if (-not $resourceGroupObject) {
+        throw 'Deploy with rules disabled first, package/activate the connector, validate ingestion, then rerun with -EnableSentinelRules.'
+    }
+    $expectedWorkspaceId = "/subscriptions/$($account.id)/resourceGroups/$ResourceGroup/providers/Microsoft.OperationalInsights/workspaces/$WorkspaceName"
+    $tables = @(Get-PagedAzRestValues -InitialUrl "$expectedWorkspaceId/tables?api-version=2025-07-01")
+    if (@($tables | Where-Object { $_.name -eq 'FeodoTracker_CL' }).Count -ne 1) {
+        throw 'FeodoTracker_CL is absent or ambiguous. Activate and validate the packaged connector before enabling rules.'
+    }
 }
 
 # Check Python without making the optional sender prerequisite fatal to Azure preview.
@@ -304,7 +319,7 @@ foreach ($pythonCandidate in @('python3', 'python')) {
     $previousPreference = $PSNativeCommandUseErrorActionPreference
     try {
         $PSNativeCommandUseErrorActionPreference = $false
-        $candidateVersion = & $pythonCommand.Source --version 2>$null
+        $candidateVersion = & $pythonCommand.Source --version
         if ($LASTEXITCODE -eq 0 -and $candidateVersion) {
             $pythonVersion = $candidateVersion
             break
@@ -315,7 +330,7 @@ foreach ($pythonCandidate in @('python3', 'python')) {
     }
 }
 if (-not $pythonVersion) {
-    Write-Host "  Warning: Python 3 not found. Send-ThreatIntel.py requires Python 3.10+" -ForegroundColor Yellow
+    Write-Host "  Warning: Python 3 not found. Send-ThreatIntel.py requires Python 3.12+" -ForegroundColor Yellow
 } else {
     Write-Host "  Python: $pythonVersion" -ForegroundColor DarkGray
 }
@@ -351,7 +366,7 @@ if (-not $resourceGroupObject) {
         --name $ResourceGroup `
         --location $Location `
         --tags "nlzt-owner=$($state.ownerToken)" 'nlzt-lab=sentinel-ccf-push' `
-        --output none 2>$null
+        --output none
     $resourceGroupObject = Get-AzureResourceGroup -Name $ResourceGroup
     if (-not $resourceGroupObject) {
         throw "Resource group '$ResourceGroup' was not readable after creation."
@@ -365,7 +380,7 @@ $deployment = az deployment group create `
     --resource-group $ResourceGroup `
     --template-file $bicepPath `
     --parameters location=$Location projectName=$ProjectName ownerToken=$($state.ownerToken) `
-    --output json 2>$null | ConvertFrom-Json
+    --output json | ConvertFrom-Json
 
 if (-not $deployment.properties.outputs.workspaceName.value) {
     Write-Error "Bicep deployment failed"
@@ -380,7 +395,7 @@ Write-Host "  Workspace: $workspaceName ($workspaceCustomerId)" -ForegroundColor
 Write-Host "`n[2/6] Verifying Microsoft Sentinel onboarding..." -ForegroundColor Yellow
 $onboardingState = az rest --method GET `
     --url "$workspaceResourceId/providers/Microsoft.SecurityInsights/onboardingStates/default?api-version=2024-03-01" `
-    2>$null | ConvertFrom-Json
+    | ConvertFrom-Json
 if ($onboardingState.name -ne 'default') {
     throw 'The owned Bicep deployment did not return the exact Sentinel onboarding state.'
 }
@@ -389,7 +404,7 @@ Write-Host "  Sentinel onboarding verified" -ForegroundColor Green
 # --- Step 3: Preflight any separately packaged CCF Push connector ---
 Write-Host "`n[3/6] Preflighting packaged CCF Push connector state..." -ForegroundColor Yellow
 $connectorDefinitions = Get-PagedAzRestValues `
-    -InitialUrl "$workspaceResourceId/providers/Microsoft.SecurityInsights/dataConnectorDefinitions?api-version=2024-01-01-preview"
+    -InitialUrl "$workspaceResourceId/providers/Microsoft.SecurityInsights/dataConnectorDefinitions?api-version=2022-09-01-preview"
 $expectedConnectorTitle = 'Feodotracker Botnet C2 Feed (CCF Push)'
 $sameTitleConnectors = @($connectorDefinitions | Where-Object {
     $_.properties.connectorUiConfig.title -eq $expectedConnectorTitle
@@ -505,8 +520,7 @@ let ActiveC2 = FeodoTracker_CL
     | distinct ip_address, malware, port;
 union isfuzzy=true
     (datatable(TimeGenerated:datetime, SourceIP:string, DestinationIP:string, LogSource:string, Details:string)[]),
-    (CommonSecurityLog | where TimeGenerated > ago(1d) | where isnotempty(DestinationIP) | project TimeGenerated, SourceIP, DestinationIP, LogSource = DeviceProduct, Details = Activity),
-    (DnsEvents | where TimeGenerated > ago(1d) | where isnotempty(IPAddresses) | mv-expand IPAddress = split(IPAddresses, ",") | project TimeGenerated, SourceIP = ClientIP, DestinationIP = tostring(IPAddress), LogSource = "DNS", Details = Name)
+    (CommonSecurityLog | where TimeGenerated > ago(1d) | where ingestion_time() > ago(1h) | where isnotempty(DestinationIP) | project TimeGenerated, SourceIP, DestinationIP, LogSource = DeviceProduct, Details = Activity)
 | join kind=inner ActiveC2 on `$left.DestinationIP == `$right.ip_address
 | project TimeGenerated, SourceIP, DestinationIP, malware, LogSource, Details
 "@
@@ -556,12 +570,15 @@ union isfuzzy=true
         }
     }
 
-    $existingWorkbooks = @(
-        az resource list `
-            --resource-group $ResourceGroup `
-            --resource-type Microsoft.Insights/workbooks `
-            --output json 2>$null | ConvertFrom-Json
-    )
+    # Generic inventory includes every category but omits displayName. Hydrate
+    # each exact resource, preserving the foreign-ID/category ownership check.
+    $workbookInventory = @(az resource list --resource-group $ResourceGroup --resource-type Microsoft.Insights/workbooks --output json | ConvertFrom-Json)
+    $existingWorkbooks = @(foreach ($item in $workbookInventory) {
+        if (-not $item.id -or $item.type -ne 'Microsoft.Insights/workbooks') { throw 'Unexpected workbook inventory shape.' }
+        $detail = az rest --method GET --url "$($item.id)?api-version=2022-04-01" | ConvertFrom-Json
+        if ($detail.id -ne $item.id -or $detail.name -ne $item.name) { throw 'Workbook detail did not match its exact inventoried resource.' }
+        $detail
+    })
     $sameTitleWorkbooks = @($existingWorkbooks | Where-Object {
         $_.properties.displayName -eq $WorkbookDisplayName -or $_.tags.'hidden-title' -eq $WorkbookDisplayName
     })
@@ -624,7 +641,7 @@ union isfuzzy=true
             $result = az rest --method PUT `
                 --url "$workspaceResourceId/providers/Microsoft.SecurityInsights/alertRules/$($rule.ruleId)?api-version=2024-03-01" `
                 --body "@$($bodyFile.FullName)" `
-                --headers 'Content-Type=application/json' 2>$null | ConvertFrom-Json
+                --headers 'Content-Type=application/json' | ConvertFrom-Json
             if ($result.name -ne $rule.ruleId) {
                 throw "Azure did not confirm analytics rule '$($rule.ruleId)'."
             }
@@ -648,7 +665,7 @@ if (-not $SkipSentinel) {
 
     $workspace = az monitor log-analytics workspace show `
         --resource-group $ResourceGroup `
-        --workspace-name $workspaceName 2>$null | ConvertFrom-Json
+        --workspace-name $workspaceName | ConvertFrom-Json
 
     $workbookBody = @{
         location   = $workspace.location
@@ -673,7 +690,7 @@ if (-not $SkipSentinel) {
         $wbResult = az rest --method PUT `
             --url "/subscriptions/$subscriptionId/resourceGroups/$ResourceGroup/providers/Microsoft.Insights/workbooks/$($state.workbookId)?api-version=2022-04-01" `
             --body "@$($bodyFile.FullName)" `
-            --headers 'Content-Type=application/json' 2>$null | ConvertFrom-Json
+            --headers 'Content-Type=application/json' | ConvertFrom-Json
         if ($wbResult.name -ne $state.workbookId -or $wbResult.tags.'nlzt-owner' -ne $state.ownerToken) {
             throw "Azure did not confirm the exact owned workbook '$($state.workbookId)'."
         }
@@ -706,17 +723,19 @@ Write-Host @"
   1. Package the four files under connector/ as a Microsoft Sentinel solution
      with Microsoft's current Azure-Sentinel Create-Azure-Sentinel-Solution tooling.
   2. Deploy that generated package to this exact owned resource group/workspace.
-  3. Open Microsoft Sentinel > Data Connectors, find the Feodotracker connector,
+  3. In the Azure portal, open Microsoft Sentinel > Data Connectors, find the Feodotracker connector,
      and click "Deploy Push Connector Resources".
   4. Copy the connection credentials (shown once) and store them securely.
   5. Set environment variables:
-       $env:CCF_TENANT_ID = "<tenant-id>"
-       $env:CCF_CLIENT_ID = "<client-id>"
-       $env:CCF_CLIENT_SECRET = "<client-secret>"
-       $env:CCF_DCE_URI = "<dce-uri>"
-       $env:CCF_DCR_ID = "<dcr-immutable-id>"
+       `$env:CCF_TENANT_ID = "<tenant-id>"
+       `$env:CCF_CLIENT_ID = "<client-id>"
+       `$env:CCF_CLIENT_SECRET = Read-Host "CCF client secret" -MaskInput
+       `$env:CCF_DCE_URI = "<dce-uri>"
+       `$env:CCF_DCR_ID = "<dcr-immutable-id>"
   6. Run: python3 $ScriptDir/Send-ThreatIntel.py
   7. Allow for ingestion latency, then run Test-CCFPush.ps1.
+  8. Only after table/query validation, rerun with -EnableSentinelRules.
+     Portal provisioning creates tenant objects; retain their exact IDs for manual cleanup.
 
   Official guide:
   https://learn.microsoft.com/azure/sentinel/isv/create-push-codeless-connector

@@ -1,3 +1,6 @@
 .ccf-push-lab-state-*.json
 __pycache__/
 *.py[cod]
+
+Solutions/
+.packaging-tooling/

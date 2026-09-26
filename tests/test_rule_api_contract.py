@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -75,6 +76,14 @@ class RuleApiContractTests(unittest.TestCase):
                     self.assertEqual(body["properties"]["techniques"], [])
                     self.assertEqual(body["properties"]["enabled"], enabled)
                     self.assertIn("FeodoTracker_CL", body["properties"]["query"])
+                    if body["properties"]["displayName"] == "LAB - Network Traffic Match to Feed Indicator":
+                        query = body["properties"]["query"]
+                        self.assertIn('ingestion_time() > ago(1h)', query)
+                        self.assertNotIn('DnsEvents', query)
+                        standalone = (DEPLOY_SCRIPT.parents[1] / 'detection/analytics-rules.kql').read_text(encoding='utf-8').split('// RULE 5:',1)[1]
+                        standalone = '\n'.join(line for line in standalone.splitlines() if not line.lstrip().startswith('//'))
+                        standalone = standalone[standalone.index('let ActiveC2 ='):]
+                        self.assertEqual(re.sub(r'\s+', '', standalone), re.sub(r'\s+', '', query))
 
 
 if __name__ == "__main__":

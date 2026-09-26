@@ -1,5 +1,43 @@
 # Sentinel CCF Push Connector Lab
 
+## September 25, 2026 source repair
+
+The four `connector/*.json` files are **bare CCF resources**, not independently deployable ARM wrappers. The Push resource carries escaped runtime expressions for the DCE/DCR and Entra identities. The reviewed Microsoft packager is pinned in `packaging/tooling.lock.json`.
+
+Use PowerShell 7.6 and Python 3.12 or later. Python direct inputs are in `scripts/requirements.in`; the conventional hash-locked `scripts/requirements.txt` is the installed transitive dependency set. Regenerate it with pip-compile and review changes together.
+
+### Build the package without Azure
+
+Use an isolated tooling checkout. The helper refuses a different commit, modified tools, or an existing output directory:
+
+```powershell
+git clone --filter=blob:none --sparse https://github.com/Azure/Azure-Sentinel.git ../azure-sentinel-tooling
+git -C ../azure-sentinel-tooling sparse-checkout set Tools/Create-Azure-Sentinel-Solution Solutions/Templates
+git -C ../azure-sentinel-tooling checkout f6cc4352c34b84d781735967808cfc953376e7f2
+./scripts/Build-CCFPackage.ps1 -AzureSentinelRoot ../azure-sentinel-tooling
+```
+
+The output is under the tooling checkout's `Solutions/NineLivesFeodoTrackerLab/Package`. The helper uses the provider's offline/local version mode, includes Metadata after Data Connectors to preserve its resource-array contract, and checks the generated JSON for the required nested resources. Microsoft's tooling may download its checksum-pinned ARM-TTK archive. It currently emits ARM-TTK errors for old API versions in provider-generated templates; Microsoft's CCF guide documents that this validation stage can fail. **JSON generation and structural checks are not a successful ARM-TTK certification or an Azure deployment.** Review the entire generated package and the current [CCF Push guide](https://learn.microsoft.com/en-us/azure/sentinel/isv/create-push-codeless-connector) before deployment. Do not ignore unrelated generation failures.
+
+### Deploy and enable in separate phases
+
+1. Deploy the owner-bound sandbox with rules disabled (the default).
+2. Build, inspect and deploy the generated package to that exact sandbox. Current CCF provisioning requires the Azure-portal Sentinel experience; use the current provider guide before the March 2027 portal transition.
+3. Activate the connector, retain exact tenant-object IDs and protect the one-time client secret. `-Destroy` removes only the exact owner-tagged resource group; it does not delete tenant applications or repository secrets.
+4. Install the read-only query prerequisite explicitly: `az extension add --name log-analytics`. Run `Test-CCFPush.ps1` and validate the intended queries/data source.
+5. Only then rerun `Deploy-Lab.ps1 -EnableSentinelRules`. Missing `FeodoTracker_CL` now blocks this path before any Azure mutation.
+
+The workspace disables local/shared-key authentication and uses modern Sentinel onboarding. Cleanup does not depend on local packaging validity. Native CLI stderr remains visible for failed reads/writes. Workbook title checks hydrate each exact inventoried resource instead of assuming generic inventory includes display names.
+
+### Detection and source freshness
+
+Feodo currently reports empty datasets and may retain old indicator rows. A legitimate empty list exits successfully **without authentication or ingestion**; a nonempty feed with no valid rows still fails. No fixed arrival latency is promised. Verify `last_seen` and the upstream source before treating a match as current threat evidence.
+
+Rule 5 correlates `CommonSecurityLog` only and restricts fresh source ingestion to its one-hour schedule before the join. The seven-day indicator lookback remains. The default query and workbook no longer assume retired `DnsEvents` collection; map modern DNS/ASIM data into the documented canonical columns and test it separately. Statistical/baseline rules intentionally retain their full windows; they can repeat observations. An IP match is a triage lead, not proof of compromise.
+
+Scheduled ingestion runs at minute 17 every six hours and a dispatch can ingest only from the repository's default branch with its explicit boolean enabled. GitHub scheduling is best-effort. Repository writers remain a credential trust boundary; use protected environments and reviewed federation where appropriate before production use. No account settings, secrets, live feeds, or cloud resources were changed by this source repair.
+
+
 Build a custom Microsoft Sentinel connector using the Codeless Connector Framework (CCF) Push mode. Ingests real botnet C2 threat intelligence from [abuse.ch Feodotracker](https://feodotracker.abuse.ch/).
 
 ## Validation Boundary
@@ -29,7 +67,7 @@ enable or change the independently controlled ingestion workflow.
 ## Prerequisites and Permissions
 
 - Azure CLI authenticated to the intended subscription and tenant
-- PowerShell 7.4+ (stable native-command failure propagation), Python 3.10+, and `pip`
+- PowerShell 7.6+ (stable native-command failure propagation), Python 3.12+, and `pip`
 - Access to the official Azure-Sentinel repository and its current
   `Create-Azure-Sentinel-Solution` packaging tooling
 - Permission to create the resource group plus Contributor and Microsoft
@@ -89,25 +127,26 @@ production use.
 # The five analytics rules are created disabled for review.
 ./scripts/Deploy-Lab.ps1 -Location "eastus" -ProjectName "ccf-push-lab"
 
-# Explicitly opt in only after review if you want the rules enabled.
-./scripts/Deploy-Lab.ps1 -Location "eastus" -ProjectName "ccf-push-lab" -EnableSentinelRules
-
 # Follow Microsoft's current CCF Push guide to place the four connector/*.json
 # files into an Azure-Sentinel solution, build it with the official tooling,
 # deploy the generated package to this workspace, and click its portal button.
 # Then configure the one-time credentials without committing them:
 $env:CCF_TENANT_ID = "<tenant-id>"
 $env:CCF_CLIENT_ID = "<client-id>"
-$env:CCF_CLIENT_SECRET = "<client-secret>"
+$env:CCF_CLIENT_SECRET = Read-Host "CCF client secret" -MaskInput
 $env:CCF_DCE_URI = "<dce-uri>"
 $env:CCF_DCR_ID = "<dcr-immutable-id>"
 
 # Push threat intelligence
-python3 -m pip install --require-hashes -r ./scripts/requirements.lock
+python3 -m pip install --require-hashes -r ./scripts/requirements.txt
 python3 ./scripts/Send-ThreatIntel.py
 
 # Validate
+az extension add --name log-analytics
 ./scripts/Test-CCFPush.ps1 -ProjectName "ccf-push-lab"
+
+# Only after the connector/table and intended queries have been validated:
+./scripts/Deploy-Lab.ps1 -Location "eastus" -ProjectName "ccf-push-lab" -EnableSentinelRules
 ```
 
 The `-WhatIf` switch performs read-only account and collision checks but does
