@@ -24,24 +24,9 @@ resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
       name: 'PerGB2018'
     }
     retentionInDays: 30
-  }
-}
-
-resource sentinel 'Microsoft.OperationsManagement/solutions@2015-11-01-preview' = {
-  name: 'SecurityInsights(${workspaceName})'
-  location: location
-  plan: {
-    name: 'SecurityInsights(${workspaceName})'
-    publisher: 'Microsoft'
-    product: 'OMSGallery/SecurityInsights'
-    promotionCode: ''
-  }
-  properties: {
-    workspaceResourceId: workspace.id
-  }
-  tags: {
-    'nlzt-owner': ownerToken
-    'nlzt-lab': 'sentinel-ccf-push'
+    features: {
+      disableLocalAuth: true
+    }
   }
 }
 

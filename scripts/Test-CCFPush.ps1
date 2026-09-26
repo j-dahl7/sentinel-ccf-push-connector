@@ -1,4 +1,4 @@
-#Requires -Version 7.4
+#Requires -Version 7.6
 
 <#
 .SYNOPSIS
@@ -110,7 +110,7 @@ function Get-PagedAzRestValues {
                 throw "Azure returned an untrusted pagination URL '$nextUrl'."
             }
         }
-        $page = az rest --method GET --url $nextUrl 2>$null | ConvertFrom-Json
+        $page = az rest --method GET --url $nextUrl | ConvertFrom-Json
         foreach ($item in @($page.value)) {
             $items.Add($item)
         }
@@ -119,16 +119,21 @@ function Get-PagedAzRestValues {
     return @($items)
 }
 
-$account = az account show --output json 2>$null | ConvertFrom-Json
+$extensions = @(az extension list --output json | ConvertFrom-Json)
+if (@($extensions | Where-Object { $_.name -eq 'log-analytics' }).Count -eq 0) {
+    throw "Install the reviewed query prerequisite explicitly: az extension add --name log-analytics"
+}
+
+$account = az account show --output json | ConvertFrom-Json
 if (-not $account -or $account.id -ne $state.subscriptionId -or $account.tenantId -ne $state.tenantId) {
     throw 'The active Azure subscription or tenant does not match the ownership manifest.'
 }
 
-$group = az group show --name $ResourceGroup --output json 2>$null | ConvertFrom-Json
+$group = az group show --name $ResourceGroup --output json | ConvertFrom-Json
 $workspace = az monitor log-analytics workspace show `
     --resource-group $ResourceGroup `
     --workspace-name $WorkspaceName `
-    --output json 2>$null | ConvertFrom-Json
+    --output json | ConvertFrom-Json
 $workspaceId = $workspace.id
 $ownerMarker = "[nlzt-owner:$($state.ownerToken)]"
 
@@ -148,15 +153,15 @@ Test-Check 'Exact workspace exists in the owned group' {
 Test-Check 'Exact Sentinel onboarding state exists' {
     $sentinel = az rest --method GET `
         --url "$workspaceId/providers/Microsoft.SecurityInsights/onboardingStates/default?api-version=2024-03-01" `
-        2>$null | ConvertFrom-Json
+        | ConvertFrom-Json
     $sentinel.name -eq 'default'
 }
 
 Write-Host "`n--- Data Connector ---" -ForegroundColor Yellow
 Test-Check 'Exact Feodotracker connector definition exists' {
     $connector = az rest --method GET `
-        --url "$workspaceId/providers/Microsoft.SecurityInsights/dataConnectorDefinitions/$($state.connectorDefinitionName)?api-version=2024-01-01-preview" `
-        2>$null | ConvertFrom-Json
+        --url "$workspaceId/providers/Microsoft.SecurityInsights/dataConnectorDefinitions/$($state.connectorDefinitionName)?api-version=2022-09-01-preview" `
+        | ConvertFrom-Json
     $connector.name -eq $state.connectorDefinitionName -and
     $connector.properties.connectorUiConfig.id -eq 'FeodotrackerCCFPush' -and
     $connector.properties.connectorUiConfig.title -eq 'Feodotracker Botnet C2 Feed (CCF Push)'
@@ -167,14 +172,14 @@ Test-Check 'FeodoTracker_CL table has data' {
     $result = az monitor log-analytics query `
         --workspace $workspace.customerId `
         --analytics-query 'FeodoTracker_CL | take 1' `
-        2>$null | ConvertFrom-Json
+        | ConvertFrom-Json
     @($result).Count -gt 0
 }
 Test-Check 'Data was ingested in the last 24 hours' {
     $result = az monitor log-analytics query `
         --workspace $workspace.customerId `
         --analytics-query 'FeodoTracker_CL | where TimeGenerated > ago(24h) | count' `
-        2>$null | ConvertFrom-Json
+        | ConvertFrom-Json
     @($result).Count -gt 0 -and [int]$result[0].Count -gt 0
 }
 
@@ -204,7 +209,7 @@ Test-Check 'Exact owned Threat Intelligence Dashboard workbook' {
     $subscriptionId = $state.subscriptionId
     $workbook = az rest --method GET `
         --url "/subscriptions/$subscriptionId/resourceGroups/$ResourceGroup/providers/Microsoft.Insights/workbooks/$($state.workbookId)?api-version=2022-04-01" `
-        2>$null | ConvertFrom-Json
+        | ConvertFrom-Json
     $workbook.name -eq $state.workbookId -and
     $workbook.tags.'nlzt-owner' -eq $state.ownerToken -and
     $workbook.tags.'hidden-title' -eq 'Threat Intelligence Dashboard' -and

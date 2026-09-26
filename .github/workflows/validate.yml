@@ -24,7 +24,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install locked test dependencies
-        run: python -m pip install --disable-pip-version-check --require-hashes -r scripts/requirements.lock
+        run: python -m pip install --disable-pip-version-check --require-hashes -r scripts/requirements.txt
 
       - name: Compile Bicep without deploying resources
         run: |
@@ -37,3 +37,18 @@ jobs:
 
       - name: Run offline sender and rule API tests
         run: python -m unittest discover -s tests -v
+
+      - name: Check out the reviewed Microsoft packaging tool without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Azure/Azure-Sentinel
+          ref: f6cc4352c34b84d781735967808cfc953376e7f2
+          persist-credentials: false
+          path: .packaging-tooling
+          sparse-checkout: |
+            Tools/Create-Azure-Sentinel-Solution
+            Solutions/Templates
+
+      - name: Generate and structurally verify the CCF package without Azure
+        shell: pwsh
+        run: ./scripts/Build-CCFPackage.ps1 -AzureSentinelRoot .packaging-tooling

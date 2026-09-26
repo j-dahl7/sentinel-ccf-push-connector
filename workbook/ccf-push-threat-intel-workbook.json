@@ -21,14 +21,24 @@
             "type": 4,
             "isRequired": true,
             "isGlobal": true,
-            "value": { "durationMs": 604800000 },
-            "timeContext": { "durationMs": 2592000000 },
+            "value": {
+              "durationMs": 604800000
+            },
+            "timeContext": {
+              "durationMs": 2592000000
+            },
             "typeSettings": {
               "allowCustom": true,
               "selectableValues": [
-                { "durationMs": 86400000 },
-                { "durationMs": 604800000 },
-                { "durationMs": 2592000000 }
+                {
+                  "durationMs": 86400000
+                },
+                {
+                  "durationMs": 604800000
+                },
+                {
+                  "durationMs": 2592000000
+                }
               ]
             }
           }
@@ -88,7 +98,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "let FeedIPs = FeodoTracker_CL\n| where TimeGenerated {TimeRange}\n| where status == \"online\"\n| distinct ip_address, malware;\nunion isfuzzy=true\n    (datatable(TimeGenerated:datetime, SourceIP:string, DestinationIP:string, LogSource:string)[]),\n    (CommonSecurityLog | where TimeGenerated {TimeRange} | where isnotempty(DestinationIP) | project TimeGenerated, SourceIP, DestinationIP, LogSource = DeviceProduct),\n    (DnsEvents | where TimeGenerated {TimeRange} | where isnotempty(IPAddresses) | mv-expand IPAddress = split(IPAddresses, \",\") | project TimeGenerated, SourceIP = ClientIP, DestinationIP = tostring(IPAddress), LogSource = \"DNS\")\n| join kind=inner FeedIPs on $left.DestinationIP == $right.ip_address\n| project TimeGenerated, SourceIP, DestinationIP, malware, LogSource\n| sort by TimeGenerated desc\n| take 50",
+        "query": "let FeedIPs = FeodoTracker_CL\n| where TimeGenerated {TimeRange}\n| where status == \"online\"\n| distinct ip_address, malware;\nunion isfuzzy=true\n    (datatable(TimeGenerated:datetime, SourceIP:string, DestinationIP:string, LogSource:string)[]),\n    (CommonSecurityLog | where TimeGenerated {TimeRange} | where isnotempty(DestinationIP) | project TimeGenerated, SourceIP, DestinationIP, LogSource = DeviceProduct)\n| join kind=inner FeedIPs on $left.DestinationIP == $right.ip_address\n| project TimeGenerated, SourceIP, DestinationIP, malware, LogSource\n| sort by TimeGenerated desc\n| take 50",
         "size": 1,
         "title": "Network Log Matches to Feed IPs (Triage Only)",
         "queryType": 0,

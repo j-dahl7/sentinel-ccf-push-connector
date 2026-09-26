@@ -127,7 +127,7 @@ class SenderTests(unittest.TestCase):
         test_step = workflow.index("python -m unittest discover -s tests -v")
         ingest_step = workflow.index("python scripts/Send-ThreatIntel.py")
         self.assertLess(test_step, ingest_step)
-        self.assertIn("--require-hashes -r scripts/requirements.lock", workflow)
+        self.assertIn("--require-hashes -r scripts/requirements.txt", workflow)
 
     def test_workflow_pr_and_default_manual_runs_do_not_ingest(self):
         workflow = (
@@ -137,7 +137,7 @@ class SenderTests(unittest.TestCase):
         self.assertIn("pull_request:", workflow)
         self.assertIn("perform_ingest:", workflow)
         self.assertIn(
-            "if: ${{ github.event_name == 'schedule' || inputs.perform_ingest }}",
+            "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)",
             workflow,
         )
 
@@ -214,23 +214,31 @@ class SenderTests(unittest.TestCase):
     def test_native_failure_contract_requires_stable_powershell_support(self):
         for name in ("Deploy-Lab.ps1", "Test-CCFPush.ps1"):
             source = (MODULE_PATH.parent / name).read_text(encoding="utf-8")
-            self.assertTrue(source.startswith("#Requires -Version 7.4\n"), name)
+            self.assertTrue(source.startswith("#Requires -Version 7.6\n"), name)
             self.assertIn("$PSNativeCommandUseErrorActionPreference = $true", source)
 
     def test_ccf_artifacts_align_with_current_packaging_contract(self):
         connector_root = MODULE_PATH.parents[1] / "connector"
         definition = json.loads(
             (connector_root / "connectorDefinition.json").read_text(encoding="utf-8")
-        )["resources"][0]
+        )
         table = json.loads(
             (connector_root / "table.json").read_text(encoding="utf-8")
-        )["resources"][0]
+        )
         dcr = json.loads(
             (connector_root / "dcr.json").read_text(encoding="utf-8")
-        )["resources"][0]
+        )
         data_connector = json.loads(
             (connector_root / "dataConnector.json").read_text(encoding="utf-8")
-        )["resources"][0]
+        )
+
+        # The provider packager discovers CCF by top-level type. An ARM wrapper
+        # passes ARM parsing but is not an input to that discovery contract.
+        for artifact in (definition, table, dcr, data_connector):
+            self.assertIn("type", artifact)
+            self.assertNotIn("resources", artifact)
+        self.assertEqual(data_connector["properties"]["auth"]["appId"], "[[parameters('auth').appId]")
+        self.assertNotIn("<auto-provisioned>", json.dumps(data_connector))
 
         self.assertEqual(table["apiVersion"], "2025-07-01")
         self.assertEqual(table["properties"]["schema"]["name"], "FeodoTracker_CL")
