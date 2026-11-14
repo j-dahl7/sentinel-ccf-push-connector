@@ -205,6 +205,52 @@ class SenderTests(unittest.TestCase):
         self.assertEqual(fixture.count('"A", "US"'), 2)
         self.assertIn("must return zero rows", fixture)
 
+    def test_network_match_requires_a_recent_provider_observation_everywhere(self):
+        repository_root = MODULE_PATH.parents[1]
+        deploy = (MODULE_PATH.parent / "Deploy-Lab.ps1").read_text(encoding="utf-8")
+        standalone = (repository_root / "detection" / "analytics-rules.kql").read_text(
+            encoding="utf-8"
+        )
+        workbook = json.loads(
+            (
+                repository_root / "workbook" / "ccf-push-threat-intel-workbook.json"
+            ).read_text(encoding="utf-8")
+        )
+        dcr = json.loads(
+            (repository_root / "connector" / "dcr.json").read_text(encoding="utf-8")
+        )
+        readme = (repository_root / "README.md").read_text(encoding="utf-8")
+
+        # Every run is stamped with the ingestion time, so TimeGenerated cannot
+        # show that the provider still observes an indicator it labels online.
+        self.assertEqual(
+            dcr["properties"]["dataFlows"][0]["transformKql"],
+            "source | extend TimeGenerated = now()",
+        )
+
+        panels = [
+            item["content"]["query"]
+            for item in workbook["items"]
+            if item.get("name") == "network-ti-matches"
+        ]
+        self.assertEqual(len(panels), 1)
+        indicator_sets = (
+            deploy.split("let ActiveC2 =", 1)[1].split(";", 1)[0],
+            standalone.split("let ActiveC2 =", 1)[1].split(";", 1)[0],
+            panels[0].split("let FeedIPs =", 1)[1].split(";", 1)[0],
+        )
+        for indicator_set in indicator_sets:
+            self.assertIn('| where status == "online"', indicator_set)
+            self.assertIn("| where last_seen > ago(7d)", indicator_set)
+
+        # Rule 3, Rule 5 and the workbook share one documented window.
+        for source in (deploy, standalone, json.dumps(workbook)):
+            self.assertGreater(source.count("last_seen > ago("), 0)
+            self.assertEqual(
+                source.count("last_seen > ago("), source.count("last_seen > ago(7d)")
+            )
+        self.assertIn("`last_seen > ago(7d)`", readme)
+
     def test_sender_documentation_is_explicitly_public_azure_only(self):
         readme = (MODULE_PATH.parents[1] / "README.md").read_text(encoding="utf-8")
 

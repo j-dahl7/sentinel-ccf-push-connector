@@ -98,7 +98,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "let FeedIPs = FeodoTracker_CL\n| where TimeGenerated {TimeRange}\n| where status == \"online\"\n| distinct ip_address, malware;\nunion isfuzzy=true\n    (datatable(TimeGenerated:datetime, SourceIP:string, DestinationIP:string, LogSource:string)[]),\n    (CommonSecurityLog | where TimeGenerated {TimeRange} | where isnotempty(DestinationIP) | project TimeGenerated, SourceIP, DestinationIP, LogSource = DeviceProduct)\n| join kind=inner FeedIPs on $left.DestinationIP == $right.ip_address\n| project TimeGenerated, SourceIP, DestinationIP, malware, LogSource\n| sort by TimeGenerated desc\n| take 50",
+        "query": "let FeedIPs = FeodoTracker_CL\n| where TimeGenerated {TimeRange}\n| where status == \"online\"\n| where last_seen > ago(7d)\n| distinct ip_address, malware;\nunion isfuzzy=true\n    (datatable(TimeGenerated:datetime, SourceIP:string, DestinationIP:string, LogSource:string)[]),\n    (CommonSecurityLog | where TimeGenerated {TimeRange} | where isnotempty(DestinationIP) | project TimeGenerated, SourceIP, DestinationIP, LogSource = DeviceProduct)\n| join kind=inner FeedIPs on $left.DestinationIP == $right.ip_address\n| project TimeGenerated, SourceIP, DestinationIP, malware, LogSource\n| sort by TimeGenerated desc\n| take 50",
         "size": 1,
         "title": "Network Log Matches to Feed IPs (Triage Only)",
         "queryType": 0,

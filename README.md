@@ -33,7 +33,7 @@ The workspace disables local/shared-key authentication and uses modern Sentinel 
 
 Feodo currently reports empty datasets and may retain old indicator rows. A legitimate empty list exits successfully **without authentication or ingestion**; a nonempty feed with no valid rows still fails. No fixed arrival latency is promised. Verify `last_seen` and the upstream source before treating a match as current threat evidence.
 
-Rule 5 correlates `CommonSecurityLog` only and restricts fresh source ingestion to its one-hour schedule before the join. The seven-day indicator lookback remains. The default query and workbook no longer assume retired `DnsEvents` collection; map modern DNS/ASIM data into the documented canonical columns and test it separately. Statistical/baseline rules intentionally retain their full windows; they can repeat observations. An IP match is a triage lead, not proof of compromise.
+Rule 5 correlates `CommonSecurityLog` only and restricts fresh source ingestion to its one-hour schedule before the join. The seven-day indicator lookback remains. Since November 13, 2026 the indicator side also requires `last_seen` within seven days; see [Indicator recency](#indicator-recency). The default query and workbook no longer assume retired `DnsEvents` collection; map modern DNS/ASIM data into the documented canonical columns and test it separately. Statistical/baseline rules intentionally retain their full windows; they can repeat observations. An IP match is a triage lead, not proof of compromise.
 
 Scheduled ingestion runs at minute 17 every six hours and a dispatch can ingest only from the repository's default branch with its explicit boolean enabled. GitHub scheduling is best-effort. Repository writers remain a credential trust boundary; use protected environments and reviewed federation where appropriate before production use. No account settings, secrets, live feeds, or cloud resources were changed by this source repair.
 
@@ -45,7 +45,13 @@ Build a custom Microsoft Sentinel connector using the Codeless Connector Framewo
 The July 25 hardened baseline passed offline Python/PowerShell checks, JSON
 parsing, Bicep compilation, workflow/dependency review, and credential-pattern
 scanning. After the August 13, 2026 lookback and cloud-scope corrections, all 19
-Python contract tests passed again. The current revision was not deployed to a
+Python contract tests passed again. The November 13, 2026
+[indicator-recency](#indicator-recency) change had offline checks only: all 35
+tests in the offline suite passed with none skipped, `bicep/main.bicep`
+compiled, and the scripts and JSON files parsed. Its KQL was not run against a
+Log Analytics workspace. `Build-CCFPackage.ps1` was not rerun, because the
+package holds only the four `connector/*.json` files and this change does not
+touch them. The current revision was not deployed to a
 live CCF preview environment and no indicator was ingested into Sentinel.
 Portal-generated resources, schemas, permissions, supported regions, and
 ingestion behavior must be confirmed in the target tenant.
@@ -207,6 +213,66 @@ by `Deploy-Lab.ps1`. It retains all prior labels even when one IP changes labels
 over time; `tests/fixtures/new-malware-family-baseline.kql` captures the
 `A -> B -> A` regression and should return zero rows.
 
+### Indicator recency
+
+The DCR sets `TimeGenerated = now()` on every row it ingests, so that column
+shows when the lab ingested the row, not when abuse.ch last observed the
+server. A row the provider has stopped updating is ingested again on every run
+and always looks new by `TimeGenerated`. The provider's own observation is
+`last_online`, which the sender stores as `last_seen`.
+
+Rule 3, Rule 5 (`ActiveC2`) and the workbook's **Network Log Matches to Feed
+IPs** panel (`FeedIPs`) therefore keep an `online` row only when
+`last_seen > ago(7d)`. Rule 5 and the panel gained this filter on November 13,
+2026. Until then they tested only `TimeGenerated` and `status`. The feed file
+served that day (last modified June 30, 2026) still held a row labeled `online`
+whose `last_online` was 2026-03-12, although abuse.ch's own
+[notice](https://feodotracker.abuse.ch/faq/) says its Feodo Tracker datasets
+are empty. Both queries would have used that row as an active indicator.
+
+The window is seven days because that is what Rule 5 already meant by recent:
+
+- Rule 5 reads seven days of ingested rows. While the feed was maintained, the
+  `last_online` of an `online` row was the current date: all 166 `online` rows
+  in an
+  [archived copy from October 13, 2022](https://web.archive.org/web/20221013210701/https://feodotracker.abuse.ch/downloads/ipblocklist.json)
+  carry that date. An indicator therefore stayed eligible for about seven days
+  after the provider last saw it online. Seven days on `last_seen` keeps that
+  behavior to within a day and matches Rule 3.
+- abuse.ch [describes this dataset](https://feodotracker.abuse.ch/blocklist/)
+  as also holding addresses that acted as a botnet C2 within the past 30 days,
+  and no `offline` row in either archived copy cited in this section has a
+  `last_online` more than 30 days before its capture. That window describes
+  how long a row stays listed. As a recency test it would keep a stale `online`
+  label eligible for a month.
+
+Limits of the filter:
+
+- `last_online` is a calendar date with no time of day, so the seven days are
+  accurate to about a day.
+- A row with an empty `last_seen` never matches, because KQL
+  [treats a comparison with a null value as false](https://learn.microsoft.com/kusto/query/where-operator?view=microsoft-sentinel).
+  The sender stores an empty value when `last_online` is missing or cannot be
+  parsed, and the provider has published new rows as `online` before recording
+  that date (two rows in an
+  [archived copy from March 16, 2023](https://web.archive.org/web/20230316183210/https://feodotracker.abuse.ch/downloads/ipblocklist.json)).
+  A new indicator in that state is not used until a later run brings the date.
+- Hunt 5 reports `NewestRecord = max(last_seen)` for each six-hour bin. When
+  that value is empty or more than seven days old, Rule 3, Rule 5 and the
+  panel have nothing to match. That is the intended result for a stale feed
+  and a fault to investigate for a maintained one. Check it after the first
+  ingestion into a new workspace, because this revision was not ingested into
+  one.
+- In the workbook, the time range picker sets the ingestion and network-log
+  window. The seven days always count back from the time the query runs, so a
+  longer range only adds older network-log rows and a custom range that ends
+  more than seven days ago returns no matches.
+- The other rules, panels and hunting queries describe the feed as published
+  and do not apply this test. The **Online Feed IPs by Malware Label** and
+  **Recent Indicators** panels and Hunt 5 show `last_seen`, which keeps a stale
+  feed visible. Hunt 4 counts `DaysActive` from `first_seen` to the query
+  time, so a stale `online` row can appear there as long-lived.
+
 ## Cleanup
 
 ```powershell
@@ -232,6 +298,9 @@ history.
   immutable ID, DCE URI, and Monitoring Metrics Publisher assignment.
 - **Sender reports no valid indicators:** verify the abuse.ch JSON schema and
   network access; malformed IP/port records are deliberately skipped.
+- **Rule 3, Rule 5, or the network-match panel returns nothing:** they require
+  `last_seen` within seven days, so a stale feed produces no results by
+  design. See [Indicator recency](#indicator-recency).
 - **Connector absent:** confirm the complete generated solution package—not the
   raw definition alone—was deployed, then check CCF Push availability in the
   selected Sentinel experience and region.

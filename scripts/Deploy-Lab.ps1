@@ -511,12 +511,13 @@ FeodoTracker_CL
         },
         @{
             displayName = "LAB - Network Traffic Match to Feed Indicator"
-            description = "Correlates recent Feodotracker IPs with supported network-log fields. A match is a triage lead, not proof of compromise."
+            description = "Correlates Feodotracker IPs that the feed labels online and last reported online within seven days with supported network-log fields. A match is a triage lead, not proof of compromise."
             severity    = "High"
             query       = @"
 let ActiveC2 = FeodoTracker_CL
     | where TimeGenerated > ago(7d)
     | where status == "online"
+    | where last_seen > ago(7d)
     | distinct ip_address, malware, port;
 union isfuzzy=true
     (datatable(TimeGenerated:datetime, SourceIP:string, DestinationIP:string, LogSource:string, Details:string)[]),
