@@ -80,6 +80,11 @@ class RuleApiContractTests(unittest.TestCase):
                         query = body["properties"]["query"]
                         self.assertIn('ingestion_time() > ago(1h)', query)
                         self.assertNotIn('DnsEvents', query)
+                        # The DCR stamps TimeGenerated at ingestion, so the request
+                        # must also test the provider's own last-online date.
+                        active_c2 = query.split('let ActiveC2 =', 1)[1].split(';', 1)[0]
+                        self.assertIn('| where status == "online"', active_c2)
+                        self.assertIn('| where last_seen > ago(7d)', active_c2)
                         standalone = (DEPLOY_SCRIPT.parents[1] / 'detection/analytics-rules.kql').read_text(encoding='utf-8').split('// RULE 5:',1)[1]
                         standalone = '\n'.join(line for line in standalone.splitlines() if not line.lstrip().startswith('//'))
                         standalone = standalone[standalone.index('let ActiveC2 ='):]
