@@ -39,10 +39,27 @@
     Preview the target resource group operation without changing Azure.
 
 .EXAMPLE
-    ./Deploy-Lab.ps1 -Location "eastus"
+    ./scripts/Deploy-Lab.ps1 -Location "eastus" -WhatIf
+
+    Previews the deployment from the checkout root without changing Azure
+    resources or local state.
 
 .EXAMPLE
-    ./Deploy-Lab.ps1 -Destroy
+    ./scripts/Deploy-Lab.ps1 -Location "eastus"
+
+    After reading the preview, deploys the owned sandbox with the analytics
+    rules disabled.
+
+.EXAMPLE
+    ./scripts/Deploy-Lab.ps1 -Destroy -WhatIf
+
+    Previews the cleanup; no resources are deleted.
+
+.EXAMPLE
+    ./scripts/Deploy-Lab.ps1 -Destroy
+
+    After reviewing the cleanup preview, deletes the exact owner-tagged
+    resource group and verifies that it is gone.
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
@@ -309,20 +326,19 @@ if ($EnableSentinelRules -and -not $SkipSentinel) {
     }
 }
 
-# Check Python without making the optional sender prerequisite fatal to Azure preview.
+# Check the interpreter that the printed sender steps (step 6 of the summary) use,
+# without making the optional sender prerequisite fatal to Azure preview. On
+# Windows, python3 and python can be the Microsoft Store alias, which exits with
+# an error when given arguments, so those steps prefer the py launcher.
+$sysPy = if (-not $IsWindows) { 'python3' } elseif (Get-Command py -ErrorAction SilentlyContinue) { 'py' } else { 'python' }
 $pythonVersion = $null
-foreach ($pythonCandidate in @('python3', 'python')) {
-    $pythonCommand = Get-Command $pythonCandidate -ErrorAction SilentlyContinue
-    if (-not $pythonCommand) {
-        continue
-    }
+if (Get-Command $sysPy -ErrorAction SilentlyContinue) {
     $previousPreference = $PSNativeCommandUseErrorActionPreference
     try {
         $PSNativeCommandUseErrorActionPreference = $false
-        $candidateVersion = & $pythonCommand.Source --version
+        $candidateVersion = & $sysPy --version
         if ($LASTEXITCODE -eq 0 -and $candidateVersion) {
             $pythonVersion = $candidateVersion
-            break
         }
     }
     finally {
@@ -330,9 +346,9 @@ foreach ($pythonCandidate in @('python3', 'python')) {
     }
 }
 if (-not $pythonVersion) {
-    Write-Host "  Warning: Python 3 not found. Send-ThreatIntel.py requires Python 3.12+" -ForegroundColor Yellow
+    Write-Host "  Warning: Python 3 not found as '$sysPy', which the sender steps at the end use. Send-ThreatIntel.py requires Python 3.12+" -ForegroundColor Yellow
 } else {
-    Write-Host "  Python: $pythonVersion" -ForegroundColor DarkGray
+    Write-Host "  Python ($sysPy): $pythonVersion" -ForegroundColor DarkGray
 }
 
 if (-not $PSCmdlet.ShouldProcess($ResourceGroup, 'Create or update the exact owner-tagged CCF Push lab')) {
@@ -720,6 +736,9 @@ if (-not $SkipSentinel) {
 }
 Write-Host ""
 Write-Host "=== IMPORTANT: Manual Step Required ===" -ForegroundColor Yellow
+# Step 6 runs the README's sender commands from the checkout root, so the virtual
+# environment lands beside the checkout. Quote that path for a PowerShell literal.
+$quotedLabRoot = [System.Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent($LabRoot)
 Write-Host @"
   1. Package the four files under connector/ as a Microsoft Sentinel solution
      with Microsoft's current Azure-Sentinel Create-Azure-Sentinel-Solution tooling.
@@ -733,7 +752,17 @@ Write-Host @"
        `$env:CCF_CLIENT_SECRET = Read-Host "CCF client secret" -MaskInput
        `$env:CCF_DCE_URI = "<dce-uri>"
        `$env:CCF_DCR_ID = "<dcr-immutable-id>"
-  6. Run: python3 $ScriptDir/Send-ThreatIntel.py
+  6. Install the sender into a virtual environment beside the checkout, run the offline
+     tests, then run the sender. On Windows, python3 can be the Microsoft Store alias;
+     Debian, Ubuntu and Homebrew Python refuse a global pip install.
+       Push-Location -LiteralPath '$quotedLabRoot'
+       `$sysPy = if (-not `$IsWindows) { 'python3' } elseif (Get-Command py -ErrorAction SilentlyContinue) { 'py' } else { 'python' }
+       & `$sysPy -m venv ../ccf-sender-venv
+       `$py = if (`$IsWindows) { '../ccf-sender-venv/Scripts/python.exe' } else { '../ccf-sender-venv/bin/python' }
+       & `$py -m pip install --require-hashes -r ./scripts/requirements.txt
+       & `$py -m unittest discover -s ./tests -v
+       & `$py ./scripts/Send-ThreatIntel.py
+       Pop-Location
   7. Allow for ingestion latency, then run Test-CCFPush.ps1.
   8. Only after table/query validation, rerun with -EnableSentinelRules.
      Portal provisioning creates tenant objects; retain their exact IDs for manual cleanup.
@@ -742,6 +771,15 @@ Write-Host @"
   https://learn.microsoft.com/azure/sentinel/isv/create-push-codeless-connector
 "@
 Write-Host ""
+# As in the README, the cleanup preview comes first and the cleanup has its own line.
+# The quoted full path runs this checkout's script, and so its ownership manifest,
+# from any directory.
+$quotedDeployScript = [System.Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent((Join-Path $ScriptDir 'Deploy-Lab.ps1'))
 Write-Host "Cleanup:" -ForegroundColor Yellow
-Write-Host "  ./Deploy-Lab.ps1 -ProjectName '$ProjectName' -Destroy"
+Write-Host @"
+  Preview the cleanup first:
+    & '$quotedDeployScript' -ProjectName '$ProjectName' -Destroy -WhatIf
+  After reviewing the preview, run the cleanup:
+    & '$quotedDeployScript' -ProjectName '$ProjectName' -Destroy
+"@
 Write-Host ""

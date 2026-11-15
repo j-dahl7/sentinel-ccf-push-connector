@@ -51,7 +51,22 @@ tests in the offline suite passed with none skipped, `bicep/main.bicep`
 compiled, and the scripts and JSON files parsed. Its KQL was not run against a
 Log Analytics workspace. `Build-CCFPackage.ps1` was not rerun, because the
 package holds only the four `connector/*.json` files and this change does not
-touch them. The current revision was not deployed to a
+touch them. The November 14, 2026 change splits the Quick Start and Cleanup
+command blocks and installs the sender in a virtual environment.
+`Deploy-Lab.ps1` now checks the same Python command as its printed sender steps,
+and the cleanup it prints shows the `-WhatIf` preview first. The change had
+offline checks only: all 48 tests in the offline suite passed with none skipped,
+`bicep/main.bicep` compiled, and the scripts and JSON files parsed. On Windows 11
+with PowerShell 7.6.10 and Python 3.12.10, where `python3` is the Microsoft Store
+alias, the Quick Start's sender commands chose `py`, created the virtual
+environment beside the checkout, installed the hash-locked requirements and
+passed the offline suite. The `& $py ./scripts/Send-ThreatIntel.py` line was not
+run; the offline tests exercise the sender with synthetic responses and a
+loopback server instead. The Linux and macOS branch (`python3`, `bin/python`)
+was not run locally; the suite's virtual-environment test takes that branch
+when the suite runs on Linux or macOS. `Build-CCFPackage.ps1` was not rerun,
+because this change does not touch `connector/*.json` either. The current
+revision was not deployed to a
 live CCF preview environment and no indicator was ingested into Sentinel.
 Portal-generated resources, schemas, permissions, supported regions, and
 ingestion behavior must be confirmed in the target tenant.
@@ -60,7 +75,9 @@ definition is equivalent to a packaged Microsoft Sentinel solution. It validates
 the four local CCF artifacts and deploys the owned sandbox, rules, and workbook;
 the connector must then be packaged with Microsoft's current tooling.
 
-For the current offline suite, run `python -m unittest discover -s tests -v`.
+For the current offline suite, create the virtual environment as in the
+[Quick Start](#quick-start) and run `& $py -m unittest discover -s ./tests -v`
+from the checkout root.
 It reports the actual run/pass/skip totals for your environment: sender tests
 mock HTTP traffic, and the deployment/API-contract cases use PowerShell Azure
 mocks. Those PowerShell cases are skipped if `pwsh` is unavailable. The dated
@@ -73,7 +90,9 @@ enable or change the independently controlled ingestion workflow.
 ## Prerequisites and Permissions
 
 - Azure CLI authenticated to the intended subscription and tenant
-- PowerShell 7.6+ (stable native-command failure propagation), Python 3.12+, and `pip`
+- PowerShell 7.6+ (stable native-command failure propagation), and
+  Python 3.12+ with `pip` and the `venv` module (on Debian and Ubuntu, install
+  `python3-venv`)
 - Access to the official Azure-Sentinel repository and its current
   `Create-Azure-Sentinel-Solution` packaging tooling
 - Permission to create the resource group plus Contributor and Microsoft
@@ -124,15 +143,25 @@ production use.
 
 ## Quick Start
 
+Preview the deployment:
+
 ```powershell
 # Preview the Azure resource-group deployment. This still performs read-only
 # local/account checks but does not write Azure resources.
 ./scripts/Deploy-Lab.ps1 -Location "eastus" -ProjectName "ccf-push-lab" -WhatIf
+```
 
+Read the preview output, then deploy:
+
+```powershell
 # Live owned sandbox deployment. This does not package or install the connector.
 # The five analytics rules are created disabled for review.
 ./scripts/Deploy-Lab.ps1 -Location "eastus" -ProjectName "ccf-push-lab"
+```
 
+Then package and activate the connector, push the feed and validate:
+
+```powershell
 # Follow Microsoft's current CCF Push guide to place the four connector/*.json
 # files into an Azure-Sentinel solution, build it with the official tooling,
 # deploy the generated package to this workspace, and click its portal button.
@@ -144,13 +173,23 @@ $env:CCF_DCE_URI = "<dce-uri>"
 $env:CCF_DCR_ID = "<dcr-immutable-id>"
 
 # Push threat intelligence
-python3 -m pip install --require-hashes -r ./scripts/requirements.txt
-python3 ./scripts/Send-ThreatIntel.py
+# Install into a virtual environment beside the checkout. On Windows, python3 can be
+# the Microsoft Store alias; Debian, Ubuntu and Homebrew Python refuse a global pip install.
+$sysPy = if (-not $IsWindows) { 'python3' } elseif (Get-Command py -ErrorAction SilentlyContinue) { 'py' } else { 'python' }
+& $sysPy -m venv ../ccf-sender-venv
+$py = if ($IsWindows) { '../ccf-sender-venv/Scripts/python.exe' } else { '../ccf-sender-venv/bin/python' }
+& $py -m pip install --require-hashes -r ./scripts/requirements.txt
+& $py -m unittest discover -s ./tests -v
+& $py ./scripts/Send-ThreatIntel.py
 
 # Validate
 az extension add --name log-analytics
 ./scripts/Test-CCFPush.ps1 -ProjectName "ccf-push-lab"
+```
 
+Review and tune the queries, then enable the rules:
+
+```powershell
 # Only after the connector/table and intended queries have been validated:
 ./scripts/Deploy-Lab.ps1 -Location "eastus" -ProjectName "ccf-push-lab" -EnableSentinelRules
 ```
@@ -275,8 +314,15 @@ Limits of the filter:
 
 ## Cleanup
 
+Preview the cleanup first:
+
 ```powershell
 ./scripts/Deploy-Lab.ps1 -ProjectName "ccf-push-lab" -Destroy -WhatIf
+```
+
+After reviewing the preview, run the cleanup:
+
+```powershell
 ./scripts/Deploy-Lab.ps1 -ProjectName "ccf-push-lab" -Destroy
 ```
 
