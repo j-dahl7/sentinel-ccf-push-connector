@@ -12,7 +12,9 @@ import os
 from pathlib import Path
 import re
 import shutil
+import shlex
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -26,13 +28,29 @@ REQUIREMENTS = ROOT / 'scripts' / 'requirements.txt'
 # Microsoft Store alias, so the py launcher is preferred, then python. Debian,
 # Ubuntu and Homebrew Python refuse a global pip install (PEP 668), so every step
 # uses the interpreter of a virtual environment beside the checkout.
+PYTHON_CHOICE = "$sysPy = if (-not $IsWindows) { 'python3' } elseif (Get-Command py -ErrorAction SilentlyContinue) { 'py' } else { 'python' }"
+CREATE_VENV = "& $sysPy -m venv ../ccf-sender-venv"
+INSTALL_DEPENDENCIES = "& $py -m pip install --require-hashes -r ./scripts/requirements.txt"
+RUN_TESTS = "& $py -m unittest discover -s ./tests -v"
+RUN_SENDER = "& $py ./scripts/Send-ThreatIntel.py"
+STAGE_FAILURES = (
+    ('venv', 'Creating the sender virtual environment failed.'),
+    ('pip', 'Installing sender dependencies failed.'),
+    ('tests', 'Sender offline tests failed; ingestion was not attempted.'),
+    ('sender', 'Threat-intelligence ingestion failed.'),
+)
 SENDER_SETUP = (
-    "$sysPy = if (-not $IsWindows) { 'python3' } elseif (Get-Command py -ErrorAction SilentlyContinue) { 'py' } else { 'python' }",
-    "& $sysPy -m venv ../ccf-sender-venv",
+    "$ErrorActionPreference = 'Stop'",
+    PYTHON_CHOICE,
+    CREATE_VENV,
+    f"if ($LASTEXITCODE -ne 0) {{ throw '{STAGE_FAILURES[0][1]}' }}",
     "$py = if ($IsWindows) { '../ccf-sender-venv/Scripts/python.exe' } else { '../ccf-sender-venv/bin/python' }",
-    "& $py -m pip install --require-hashes -r ./scripts/requirements.txt",
-    "& $py -m unittest discover -s ./tests -v",
-    "& $py ./scripts/Send-ThreatIntel.py",
+    INSTALL_DEPENDENCIES,
+    f"if ($LASTEXITCODE -ne 0) {{ throw '{STAGE_FAILURES[1][1]}' }}",
+    RUN_TESTS,
+    f"if ($LASTEXITCODE -ne 0) {{ throw '{STAGE_FAILURES[2][1]}' }}",
+    RUN_SENDER,
+    f"if ($LASTEXITCODE -ne 0) {{ throw '{STAGE_FAILURES[3][1]}' }}",
 )
 WHATIF = re.compile(r'\s-WhatIf\b', re.IGNORECASE)
 DEPLOYER_RUN = re.compile(r'^(?:pwsh (?:-\w+ )*|& ?)?\S*\bDeploy-Lab\.ps1\b')
@@ -61,7 +79,7 @@ def without_whatif(command):
 
 def readme_sender_setup(test):
     """The README's own sender commands, in order, from the one block that runs the sender."""
-    blocks = [(where, commands) for where, commands in fenced_blocks() if SENDER_SETUP[-1] in commands]
+    blocks = [(where, commands) for where, commands in fenced_blocks() if RUN_SENDER in commands]
     test.assertEqual(len(blocks), 1, 'exactly one README block runs the sender with the venv interpreter')
     where, commands = blocks[0]
     test.assertIn(SENDER_SETUP[0], commands, f'{where}: the block does not choose the interpreter')
@@ -141,7 +159,7 @@ class ReadmeSenderSetupTests(unittest.TestCase):
 
         # The commands run from the checkout root: the venv lands beside the
         # checkout, and the files the venv interpreter reads exist.
-        venv = (ROOT / setup[1].split()[-1]).resolve()
+        venv = (ROOT / CREATE_VENV.split()[-1]).resolve()
         if venv == ROOT or ROOT in venv.parents:
             ignored = (ROOT / '.gitignore').read_text(encoding='utf-8').splitlines()
             self.assertIn(f'{venv.relative_to(ROOT).as_posix()}/', ignored, 'a venv inside the checkout must be ignored')
@@ -168,7 +186,7 @@ class ReadmeSenderSetupTests(unittest.TestCase):
         installs = [line for line in comments if PIP_INSTALL.search(line)]
         self.assertTrue(installs, 'scripts/requirements.txt says how to install it')
         for line in installs:
-            self.assertTrue(line.endswith(f': {SENDER_SETUP[3]}'), f'scripts/requirements.txt: {line}')
+            self.assertTrue(line.endswith(f': {INSTALL_DEPENDENCIES}'), f'scripts/requirements.txt: {line}')
 
 
 class DeployerInstructionTests(unittest.TestCase):
@@ -176,7 +194,7 @@ class DeployerInstructionTests(unittest.TestCase):
         # The preflight runs the README's own choice, so on a Windows machine with only
         # the py launcher it reports that Python instead of probing python3 and python.
         deploy = DEPLOY_SCRIPT.read_text(encoding='utf-8')
-        self.assertEqual([line for line in deploy.splitlines() if line.startswith('$sysPy = ')], [SENDER_SETUP[0]])
+        self.assertEqual([line for line in deploy.splitlines() if line.startswith('$sysPy = ')], [PYTHON_CHOICE])
         self.assertIn('& $sysPy --version', deploy)
         self.assertNotIn("'python3', 'python'", deploy)
 
@@ -203,9 +221,9 @@ class SenderSetupBehaviorTests(unittest.TestCase):
             checkout.mkdir()
             script = '\n'.join([
                 "$ErrorActionPreference = 'Stop'",
-                '$PSNativeCommandUseErrorActionPreference = $true',
+                '$PSNativeCommandUseErrorActionPreference = $false',
                 'Set-Location -LiteralPath $env:CCF_TEST_CHECKOUT',
-                *setup[:3],
+                *setup[:setup.index(INSTALL_DEPENDENCIES)],
                 "& $py -c \"import sys; print('VENV=' + str(sys.prefix != sys.base_prefix)); print('PREFIX=' + sys.prefix)\"",
                 '& $py -m pip --version',
                 "'SYSPY=' + $sysPy",
@@ -218,6 +236,75 @@ class SenderSetupBehaviorTests(unittest.TestCase):
             self.assertFalse((checkout / 'ccf-sender-venv').exists())
             chosen = re.search(r'^SYSPY=(.+)$', result.stdout, re.MULTILINE).group(1).strip()
             self.assertIn(chosen, ('py', 'python') if os.name == 'nt' else ('python3',))
+
+    def test_each_native_failure_stops_the_printed_sequence_before_the_next_stage(self):
+        # Execute the README's exact commands with native stand-ins. A real venv
+        # runs local fake pip/unittest modules and a fake sender, so no package
+        # download, feed request or cloud request is possible. The printed steps
+        # are independently required below to be byte-for-byte the same sequence.
+        _, setup = readme_sender_setup(self)
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            checkout = directory / 'checkout'
+            checkout.mkdir()
+            (checkout / 'scripts').mkdir()
+            venv = directory / 'ccf-sender-venv'
+            created = subprocess.run([sys.executable, '-m', 'venv', '--without-pip', str(venv)],
+                                     capture_output=True, text=True, check=False, timeout=120)
+            self.assertEqual(created.returncode, 0, created.stdout + created.stderr)
+            commands = directory / 'commands'
+            commands.mkdir()
+            log = directory / 'stages.txt'
+
+            def stand_in(stage):
+                return (
+                    'import os\nfrom pathlib import Path\n'
+                    f'stage = {stage!r}\n'
+                    "with Path(os.environ['CCF_STAGE_LOG']).open('a', encoding='utf-8') as stream:\n"
+                    "    stream.write(stage + '\\n')\n"
+                    "raise SystemExit(42 if os.environ.get('CCF_FAIL_STAGE') == stage else 0)\n"
+                )
+
+            launcher_script = commands / 'launcher.py'
+            launcher_script.write_text(stand_in('venv'), encoding='utf-8')
+            # The system-interpreter stand-in records the venv stage; the venv
+            # above is already present so a success can continue without network.
+            native_python = getattr(sys, '_base_executable', sys.executable)
+            if os.name == 'nt':
+                (commands / 'py.cmd').write_text(
+                    f'@echo off\r\n"{native_python}" "{launcher_script}" %*\r\nexit /b %errorlevel%\r\n',
+                    encoding='utf-8',
+                )
+            else:
+                launcher = commands / 'python3'
+                launcher.write_text(f'#!/bin/sh\nexec {shlex.quote(native_python)} {shlex.quote(str(launcher_script))} "$@"\n',
+                                    encoding='utf-8')
+                launcher.chmod(0o755)
+            for relative, stage in [('pip.py', 'pip'), ('unittest.py', 'tests'), ('scripts/Send-ThreatIntel.py', 'sender')]:
+                (checkout / relative).write_text(stand_in(stage), encoding='utf-8')
+
+            for index, (stage, message) in enumerate((*STAGE_FAILURES, ('', ''))):
+                with self.subTest(failing_stage=stage or 'none'):
+                    log.unlink(missing_ok=True)
+                    script = '\n'.join([
+                        "$ErrorActionPreference = 'Continue'",
+                        '$PSNativeCommandUseErrorActionPreference = $false',
+                        'Set-Location -LiteralPath $env:CCF_TEST_CHECKOUT',
+                        *setup,
+                        "'SETUP_COMPLETED'",
+                    ])
+                    result = run_pwsh(script, CCF_TEST_CHECKOUT=str(checkout), CCF_STAGE_LOG=str(log),
+                                      CCF_FAIL_STAGE=stage, PATH=f"{commands}{os.pathsep}{os.environ.get('PATH', '')}")
+                    expected = [name for name, _ in STAGE_FAILURES[:index + 1]]
+                    self.assertEqual(log.read_text(encoding='utf-8').splitlines(), expected,
+                                     result.stdout + result.stderr)
+                    if stage:
+                        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                        self.assertIn(message, result.stdout + result.stderr)
+                        self.assertNotIn('SETUP_COMPLETED', result.stdout)
+                    else:
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                        self.assertIn('SETUP_COMPLETED', result.stdout)
 
 
 @unittest.skipUnless(shutil.which('pwsh'), 'PowerShell 7 is not available')
