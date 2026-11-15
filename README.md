@@ -25,7 +25,7 @@ The output is under the tooling checkout's `Solutions/NineLivesFeodoTrackerLab/P
 2. Build, inspect and deploy the generated package to that exact sandbox. Current CCF provisioning requires the Azure-portal Sentinel experience; use the current provider guide before the March 2027 portal transition.
 3. Activate the connector, retain exact tenant-object IDs and protect the one-time client secret. `-Destroy` removes only the exact owner-tagged resource group; it does not delete tenant applications or repository secrets.
 4. Install the read-only query prerequisite explicitly: `az extension add --name log-analytics`. Run `Test-CCFPush.ps1` and validate the intended queries/data source.
-5. Only then rerun `Deploy-Lab.ps1 -EnableSentinelRules`. Missing `FeodoTracker_CL` now blocks this path before any Azure mutation.
+5. Only then enable the reviewed rules. Enable portal-edited rules individually, or save edits in the source before rerunning `Deploy-Lab.ps1 -EnableSentinelRules` as described in [Quick Start](#quick-start). Missing `FeodoTracker_CL` blocks that redeployment before any Azure mutation.
 
 The workspace disables local/shared-key authentication and uses modern Sentinel onboarding. Cleanup does not depend on local packaging validity. Native CLI stderr remains visible for failed reads/writes. Workbook title checks hydrate each exact inventoried resource instead of assuming generic inventory includes display names.
 
@@ -175,24 +175,36 @@ $env:CCF_DCR_ID = "<dcr-immutable-id>"
 # Push threat intelligence
 # Install into a virtual environment beside the checkout. On Windows, python3 can be
 # the Microsoft Store alias; Debian, Ubuntu and Homebrew Python refuse a global pip install.
+$ErrorActionPreference = 'Stop'
 $sysPy = if (-not $IsWindows) { 'python3' } elseif (Get-Command py -ErrorAction SilentlyContinue) { 'py' } else { 'python' }
 & $sysPy -m venv ../ccf-sender-venv
+if ($LASTEXITCODE -ne 0) { throw 'Creating the sender virtual environment failed.' }
 $py = if ($IsWindows) { '../ccf-sender-venv/Scripts/python.exe' } else { '../ccf-sender-venv/bin/python' }
 & $py -m pip install --require-hashes -r ./scripts/requirements.txt
+if ($LASTEXITCODE -ne 0) { throw 'Installing sender dependencies failed.' }
 & $py -m unittest discover -s ./tests -v
+if ($LASTEXITCODE -ne 0) { throw 'Sender offline tests failed; ingestion was not attempted.' }
 & $py ./scripts/Send-ThreatIntel.py
+if ($LASTEXITCODE -ne 0) { throw 'Threat-intelligence ingestion failed.' }
 
 # Validate
 az extension add --name log-analytics
 ./scripts/Test-CCFPush.ps1 -ProjectName "ccf-push-lab"
 ```
 
-Review and tune the queries, then enable the rules:
+Review and tune the queries before enabling the rules. If you edited a rule in
+the portal, enable it individually on Sentinel's **Analytics > Active rules**
+tab. To enable by redeploying, first save the same edits in
+`scripts/Deploy-Lab.ps1` and `detection/analytics-rules.kql`, then run:
 
 ```powershell
 # Only after the connector/table and intended queries have been validated:
 ./scripts/Deploy-Lab.ps1 -Location "eastus" -ProjectName "ccf-push-lab" -EnableSentinelRules
 ```
+
+Every deployer run rewrites the lab rules from `scripts/Deploy-Lab.ps1`, including
+their queries and enabled state. A later run without `-EnableSentinelRules`
+disables the rules again, including rules previously enabled in the portal.
 
 The `-WhatIf` switch performs read-only account and collision checks but does
 not create Azure resources, temporary request bodies, or the local ownership
@@ -235,7 +247,8 @@ federation when the CCF flow in your tenant supports it.
 
 All five rules are deployed **disabled by default**. Inspect the KQL, confirm
 the custom table schema and source tables in your workspace, and tune the
-thresholds before using `-EnableSentinelRules`. These are lab examples, not
+thresholds in the source before using `-EnableSentinelRules`; enable portal-only
+edits individually instead. These are lab examples, not
 production-ready detections or proof that a host is compromised.
 
 | Rule | Example severity | Evidence boundary |

@@ -755,16 +755,24 @@ Write-Host @"
   6. Install the sender into a virtual environment beside the checkout, run the offline
      tests, then run the sender. On Windows, python3 can be the Microsoft Store alias;
      Debian, Ubuntu and Homebrew Python refuse a global pip install.
-       Push-Location -LiteralPath '$quotedLabRoot'
+       Push-Location -LiteralPath '$quotedLabRoot' -ErrorAction Stop
+       `$ErrorActionPreference = 'Stop'
        `$sysPy = if (-not `$IsWindows) { 'python3' } elseif (Get-Command py -ErrorAction SilentlyContinue) { 'py' } else { 'python' }
        & `$sysPy -m venv ../ccf-sender-venv
+       if (`$LASTEXITCODE -ne 0) { throw 'Creating the sender virtual environment failed.' }
        `$py = if (`$IsWindows) { '../ccf-sender-venv/Scripts/python.exe' } else { '../ccf-sender-venv/bin/python' }
        & `$py -m pip install --require-hashes -r ./scripts/requirements.txt
+       if (`$LASTEXITCODE -ne 0) { throw 'Installing sender dependencies failed.' }
        & `$py -m unittest discover -s ./tests -v
+       if (`$LASTEXITCODE -ne 0) { throw 'Sender offline tests failed; ingestion was not attempted.' }
        & `$py ./scripts/Send-ThreatIntel.py
+       if (`$LASTEXITCODE -ne 0) { throw 'Threat-intelligence ingestion failed.' }
        Pop-Location
   7. Allow for ingestion latency, then run Test-CCFPush.ps1.
-  8. Only after table/query validation, rerun with -EnableSentinelRules.
+  8. After table/query validation, enable portal-edited rules on Analytics > Active rules.
+     To redeploy with -EnableSentinelRules, first save any query edits in
+     scripts/Deploy-Lab.ps1 and detection/analytics-rules.kql. Every rerun rewrites
+     the rules from the script; a rerun without -EnableSentinelRules disables them.
      Portal provisioning creates tenant objects; retain their exact IDs for manual cleanup.
 
   Official guide:
